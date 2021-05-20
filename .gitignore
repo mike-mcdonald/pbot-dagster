@@ -1,0 +1,7 @@
+.env
+.venv/
+.telemetry/
+.vscode/
+logs/
+storage/
+__pycache__/

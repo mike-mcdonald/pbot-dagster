@@ -1,0 +1,80 @@
+scheduler:
+  module: dagster.core.scheduler
+  class: DagsterDaemonScheduler
+
+run_coordinator:
+  module: dagster.core.run_coordinator
+  class: QueuedRunCoordinator
+  # below config are optional, they are used to limit concurrent dag runs overall and
+  # based on tags (https://docs.dagster.io/concepts/solids-pipelines/pipelines#pipeline-tags) specified in pipelines.
+  # more on this at https://docs.dagster.io/deployment/run-coordinator#limiting-run-concurrency
+  # config:
+  #   max_concurrent_runs: 25
+  #   tag_concurrency_limits:
+  #     - key: "database"
+  #       value: "redshift"
+  #       limit: 4
+  #     - key: "dagster/backfill"
+  #       limit: 10
+
+run_launcher:
+  module: dagster.core.launcher
+  class: DefaultRunLauncher
+
+
+# Configure PostgreSQL for DAG run history persistence.
+run_storage:
+  module: dagster_postgres.run_storage
+  class: PostgresRunStorage
+  config:
+    postgres_db:
+      hostname: postgres
+      username:
+        env: DAGSTER_POSTGRES_USER
+      password:
+        env: DAGSTER_POSTGRES_PASSWORD
+      db_name:
+        env: DAGSTER_POSTGRES_DB
+      port: 5432
+
+# dagster schedular persisted storage
+schedule_storage:
+  module: dagster_postgres.schedule_storage
+  class: PostgresScheduleStorage
+  config:
+    postgres_db:
+      hostname: postgres
+      username:
+        env: DAGSTER_POSTGRES_USER
+      password:
+        env: DAGSTER_POSTGRES_PASSWORD
+      db_name:
+        env: DAGSTER_POSTGRES_DB
+      port: 5432
+
+# To persist DAG run logs in PostgreSQL
+event_log_storage:
+  module: dagster_postgres.event_log
+  class: PostgresEventLogStorage
+  config:
+    postgres_db:
+      hostname: postgres
+      username:
+        env: DAGSTER_POSTGRES_USER
+      password:
+        env: DAGSTER_POSTGRES_PASSWORD
+      db_name:
+        env: DAGSTER_POSTGRES_DB
+      port: 5432
+
+# to write stdout & stderr logs to azure blob storage.
+# by default it is written to WORKDIR/logs
+# compute_logs:
+#   module: dagster_azure.blob.compute_log_manager
+#   class: AzureBlobComputeLogManager
+#   config:
+#     storage_account: mycorp-dagster
+#     container: compute-logs
+#     secret_key: foo
+#     local_dir: /tmp/bar
+#     prefix: dagster-test-

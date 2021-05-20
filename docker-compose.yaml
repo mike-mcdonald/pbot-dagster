@@ -1,0 +1,77 @@
+version: "3.7"
+
+services:
+  # This service runs the postgres DB used by dagster for run storage, schedule storage,
+  # and event log storage.
+  postgres:
+    image: postgres:11
+    container_name: postgres
+    environment:
+      POSTGRES_USER: "dagster"
+      POSTGRES_PASSWORD: "dagster"
+      POSTGRES_DB: "dagster"
+    volumes:
+        - "db:/var/lib/postgresql/data"
+    networks:
+        - dagster-network
+
+  # This service runs dagit, which loads the pipelines from the user code container.
+  # Since our instance uses the QueuedRunCoordinator, any runs submitted from dagit will be put on
+  # a queue and later dequeued and launched by dagster-daemon.
+  web_server:
+    build:
+      context: .
+    entrypoint:
+      - dagit
+      - -h
+      - "0.0.0.0"
+      - -p
+      - "3000"
+      - -w
+      - workspace.yaml
+    container_name: web_server
+    expose:
+      - "3000"
+    ports:
+      - "3000:3000"
+    environment:
+      DAGSTER_POSTGRES_USER: "dagster"
+      DAGSTER_POSTGRES_PASSWORD: "dagster"
+      DAGSTER_POSTGRES_DB: "dagster"
+    volumes: # Make docker client accessible so we can terminate containers from dagit
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ".:/opt/dagster/dagster_home"
+    networks:
+      - dagster-network
+    depends_on:
+      - postgres
+
+  # This service runs the dagster-daemon process, which is responsible for taking runs
+  # off of the queue and launching them, as well as creating runs from schedules or sensors.
+  scheduler:
+    build:
+      context: .
+    entrypoint:
+      - dagster-daemon
+      - run
+    container_name: scheduler
+    restart: on-failure
+    environment:
+      DAGSTER_POSTGRES_USER: "dagster"
+      DAGSTER_POSTGRES_PASSWORD: "dagster"
+      DAGSTER_POSTGRES_DB: "dagster"
+      AZURE_DATA_LAKE_STORAGE_KEY: ${AZURE_DATA_LAKE_STORAGE_KEY}
+    volumes: # Make docker client accessible so we can launch containers using host docker
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ".:/opt/dagster/dagster_home"
+    networks:
+      - dagster-network
+    depends_on:
+      - postgres
+
+networks:
+  dagster-network:
+    driver: bridge
+    name: dagster-network
+volumes:
+  db:

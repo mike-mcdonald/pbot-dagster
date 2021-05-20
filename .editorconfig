@@ -1,0 +1,33 @@
+# https://editorconfig.org/
+
+root = true
+
+[*.*]
+indent_style = space
+trim_trailing_whitespace = true
+end_of_line = lf
+charset = utf-8
+
+# [y|ya|x]ML for various configurations
+[*.{xml, yaml, yml}]
+indent_size = 2
+
+# Markdown and related
+[*.md]
+indent_size = 2
+
+# Bash and related
+[*.sh]
+indent_size = 2
+
+# Python and related
+[*.py]
+indent_size = 4
+
+# Javascript and related
+[*.{js,jsx,ts,tsx}]
+indent_size = 2
+insert_final_newline = true
+
+[*.json]
+indent_size = 4
