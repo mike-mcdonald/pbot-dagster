@@ -5,3 +5,12 @@
 logs/
 storage/
 __pycache__/
+
+services/dagster/.vs/
+services/dagster/bin/
+services/dagster/obj/
+*.user
+*.suo
+*.pdb
+*.pfx
+
