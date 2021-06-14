@@ -1,15 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Data;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Management;
 using System.Reflection;
 using System.ServiceProcess;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace dagit
 {
@@ -24,7 +20,6 @@ namespace dagit
         {
             this.CanStop = true;
             this.CanShutdown = true;
-            machine_name = Environment.MachineName.ToString().ToUpper().Trim();
             proc = new List<Process>();
             InitializeComponent();
         }
@@ -32,41 +27,47 @@ namespace dagit
         protected override void OnStart(string[] args)
         {
 
+            machine_name = Environment.GetEnvironmentVariable("DAGSTER_SERVICE").ToString().ToUpper().Trim();
             string path = System.IO.Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
             string arg = "";
 
             try
             {
 
-                if (machine_name == "PBOTWEB4")
+                if (machine_name == "DAGIT")
                 {
                     arg = @"& " + path + @"\dagit.ps1";
                     StartProcess(arg);
                 }
-                else if (machine_name == "PBOTDM1")
+                else if (machine_name == "DAGSTER")
                 {
+                    arg = @"& " + path + @"\dagster.ps1";
+                    StartProcess(arg);
+                }
+                else if (machine_name == "BOTH")
+                {
+
+                    arg = @"& " + path + @"\dagit.ps1";
+                    StartProcess(arg);
+
                     arg = @"& " + path + @"\dagster.ps1";
                     StartProcess(arg);
                 }
                 else
                 {
-
-                    arg = @"& " + path + @"\dagit.ps1";
-                    StartProcess(arg);
-
-                    arg = @"& " + path + @"\dagster.ps1";
-                    StartProcess(arg);
+                    throw new ArgumentException("Invalid value set for DAGSTER_SERVICE environment variable");
                 }
             }
             catch (Exception e)
             {
                 string log_file_path = @"C:\dagster\log.txt";
-                if (File.Exists(log_file_path)){
-                    File.Delete(log_file_path);
-                }
-                using (StreamWriter writer = File.CreateText(log_file_path))
+                if (!File.Exists(log_file_path))
                 {
-                    writer.WriteLine(e.Message);
+                    File.Create(log_file_path);
+                }
+                using (StreamWriter writer = File.AppendText(log_file_path))
+                {
+                    writer.WriteLine(DateTime.Now.ToString() + " >> " + e.Message);
                     writer.WriteLine(e.StackTrace);
                     writer.WriteLine(e.InnerException);
                 }
@@ -75,7 +76,6 @@ namespace dagit
         }
         protected override void OnStop()
         {
-
             foreach (Process p in proc)
             {
                 EndProcessTree(p.Id);
@@ -111,7 +111,5 @@ namespace dagit
             catch (ArgumentException)
             { /* process already exited */ }
         }
-
-
     }
 }
