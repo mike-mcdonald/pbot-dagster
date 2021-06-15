@@ -3,6 +3,7 @@
 A small windows service application that runs powershell scripts to run dagit (dagster UI) and/or dagster daemon as a service.
 
 ## Building the service
+Requires .Net framework 4.7.2
 
 Set the build option to Release in visual studio and Build the service application, it should create service executable files under `pbot-dagster\services\dagster\bin\Release`
 
