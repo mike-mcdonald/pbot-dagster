@@ -1,3 +1,4 @@
+using NLog;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -13,7 +14,7 @@ namespace dagit
     public partial class RunDagster : ServiceBase
     {
 
-
+        private Logger logger = LogManager.GetLogger("dagsterLogger");
         private List<Process> proc;
         private string machine_name;
         public RunDagster()
@@ -60,17 +61,8 @@ namespace dagit
             }
             catch (Exception e)
             {
-                string log_file_path = @"C:\dagster\log.txt";
-                if (!File.Exists(log_file_path))
-                {
-                    File.Create(log_file_path);
-                }
-                using (StreamWriter writer = File.AppendText(log_file_path))
-                {
-                    writer.WriteLine(DateTime.Now.ToString() + " >> " + e.Message);
-                    writer.WriteLine(e.StackTrace);
-                    writer.WriteLine(e.InnerException);
-                }
+                logger.Error("Exception: " + e.Message);
+                logger.Error("Exception: " + e.StackTrace);
             }
 
         }
@@ -91,8 +83,17 @@ namespace dagit
             start_proc.StartInfo.RedirectStandardError = true;
             start_proc.StartInfo.UseShellExecute = false;
 
+            start_proc.OutputDataReceived += ConsoleOutputHandler;
+            start_proc.StartInfo.RedirectStandardInput = true;
             start_proc.Start();
             proc.Add(start_proc);
+           
+            start_proc.BeginOutputReadLine();
+        }
+        private void ConsoleOutputHandler(object sendingProcess,
+            DataReceivedEventArgs e)
+        {
+            logger.Debug(e.Data);
         }
 
         private void EndProcessTree(int pid)

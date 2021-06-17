@@ -28,4 +28,10 @@ You can also modify the host and port that dagit will run on.
 
 Set the Dagster service startup to Automatic and start the service.
 
-browse dagit at http://127.0.0.1:3000
+browse dagit at http://127.0.0.1:3000/dagster
+
+## See Console Stdout logs
+
+Open PowerShell and run the following Command
+
+`Get-Content D:\dagster\stdout_log.txt -Wait`
