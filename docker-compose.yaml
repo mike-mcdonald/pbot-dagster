@@ -38,6 +38,9 @@ services:
       DAGSTER_POSTGRES_USER: "dagster"
       DAGSTER_POSTGRES_PASSWORD: "dagster"
       DAGSTER_POSTGRES_DB: "dagster"
+      DAGSTER_POSTGRES_HOST: "postgres"
+      DAGSTER_POSTGRES_PORT: 5432
+      DAGSTER_AES_KEY: "IF1/eRidqM+6m1hVXLeGOg=="
     volumes: # Make docker client accessible so we can terminate containers from dagit
       - /var/run/docker.sock:/var/run/docker.sock
       - ".:/opt/dagster/dagster_home"
@@ -60,6 +63,9 @@ services:
       DAGSTER_POSTGRES_USER: "dagster"
       DAGSTER_POSTGRES_PASSWORD: "dagster"
       DAGSTER_POSTGRES_DB: "dagster"
+      DAGSTER_POSTGRES_HOST: "postgres"
+      DAGSTER_POSTGRES_PORT: 5432
+      DAGSTER_AES_KEY: "IF1/eRidqM+6m1hVXLeGOg=="
       AZURE_DATA_LAKE_STORAGE_KEY: ${AZURE_DATA_LAKE_STORAGE_KEY}
     volumes: # Make docker client accessible so we can launch containers using host docker
       - /var/run/docker.sock:/var/run/docker.sock
