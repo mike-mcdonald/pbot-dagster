@@ -5,7 +5,7 @@ This folder contains everything to run Dagster's daemon and dagit processes as a
 This is a .NET 6 project that creates an executable wrapper around a Powershell script that starts Dagster's python executables. It contains an install and uninstall script to help set up the services and environment variables required for Dagster to run.
 
 ## Building
-In order to compile this service you'll need to have the [.NET 6.0 SDK](https://dotnet.microsoft.com/download/dotnet/6.0). Once you have downloaded the SDK you can build this service byt running `dotnet restore` then `dotnet publish --configuration Release`. Once those commands have completed, you will have an output folder in `.\bin\Release\net6.0\win-x64\publish` which you can copy to your desired destination. Alternatively you can specify a directory to place the output in with the `--output <DIR>` option for `dotnet publish`.
+In order to compile this service you'll need to have the [.NET 6.0 SDK](https://dotnet.microsoft.com/download/dotnet/6.0). Once you have downloaded the SDK you can build this service by running `dotnet restore` then `dotnet publish --configuration Release`. Once those commands have completed, you will have an output folder in `.\bin\Release\net6.0\win-x64\publish` which you can copy to your desired destination. Alternatively you can specify a directory to place the output in with the `--output <DIR>` option for `dotnet publish`.
 
 ## Deployment
 You can deploy the service by copying the publish folder after completing the [Building](./#building) section above to your desired machine. Your destination does not need to have the .NET runtime installed, as the project is set up to bundle the runtime with the published output.

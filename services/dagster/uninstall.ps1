@@ -12,7 +12,7 @@ if ($Environment) {
         "DAGSTER_POSTGRES_HOST",
         "DAGSTER_POSTGRES_PORT",
         "DAGSTER_POSTGRES_DB",
-        "DAGSTER_POSTGRES_USERNAME",
+        "DAGSTER_POSTGRES_USER",
         "DAGSTER_POSTGRES_PASSWORD",
         "DAGSTER_HOME",
         "DAGSTER_AES_KEY"
@@ -32,5 +32,5 @@ $TextInfo = (Get-Culture).TextInfo
 foreach ($service in @("dagit", "daemon")) {
     Write-Host "Removing '$service' service..."
     $name = $TextInfo.ToTitleCase($service)
-    Get-Service -Name "Dagster$name" | Remove-Service
+    sc.exe delete "Dagster$name"
 }

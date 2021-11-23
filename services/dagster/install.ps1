@@ -22,7 +22,7 @@ $requiredVariables = @(
     "DAGSTER_POSTGRES_HOST",
     "DAGSTER_POSTGRES_PORT",
     "DAGSTER_POSTGRES_DB",
-    "DAGSTER_POSTGRES_USERNAME",
+    "DAGSTER_POSTGRES_USER",
     "DAGSTER_POSTGRES_PASSWORD",
     "DAGSTER_AES_KEY"
 );
@@ -68,6 +68,6 @@ foreach ($service in $services) {
         -Description "Service managing dagster's $name process" `
         -BinaryPathName $binaryPath `
         -Credential $credential `
-        -StartupType "AutomaticDelayedStart"
+        -StartupType "Automatic"
 }
 

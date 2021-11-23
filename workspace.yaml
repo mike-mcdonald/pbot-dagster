@@ -1,6 +1,6 @@
 load_from:
   - python_file:
-      relative_path: dags/cereal/repo.py
+      relative_path: dags/cereal/cereal.py
       working_directory: /opt/dagster/dagster_home/dags/cereal
   - python_file:
       relative_path: dags/azure-test/azure-test.py
@@ -8,3 +8,6 @@ load_from:
   - python_file:
       relative_path: dags/connections/manage_conns.py
       working_directory: /opt/dagster/dagster_home/dags/connections
+  - python_file:
+      relative_path: dags/pfht/pfht_to_twilight.py
+      working_directory: /opt/dagster/dagster_home/dags/pfht
