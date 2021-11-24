@@ -1,37 +1,15 @@
-# Dagster Windows Service Application
+# Dagster services
+This folder contains everything to run Dagster's daemon and dagit processes as a Windows service.
 
-A small windows service application that runs powershell scripts to run dagit (dagster UI) and/or dagster daemon as a service.
+## Overview
+This is a .NET 6 project that creates an executable wrapper around a Powershell script that starts Dagster's python executables. It contains an install and uninstall script to help set up the services and environment variables required for Dagster to run.
 
-## Building the service
-Requires .Net framework 4.7.2
+## Building
+In order to compile this service you'll need to have the [.NET 6.0 SDK](https://dotnet.microsoft.com/download/dotnet/6.0). Once you have downloaded the SDK you can build this service by running `dotnet restore` then `dotnet publish --configuration Release`. Once those commands have completed, you will have an output folder in `.\bin\Release\net6.0\win-x64\publish` which you can copy to your desired destination. Alternatively you can specify a directory to place the output in with the `--output <DIR>` option for `dotnet publish`.
 
-Set the build option to Release in visual studio and Build the service application, it should create service executable files under `pbot-dagster\services\dagster\bin\Release`
+## Deployment
+You can deploy the service by copying the publish folder after completing the [Building](./#building) section above to your desired machine. Your destination does not need to have the .NET runtime installed, as the project is set up to bundle the runtime with the published output.
 
-## Installing the service
+Once you've copied the published output to your destination, you can run the `install.ps1` script to set up the service you want by following the prompts. This script will configure the machine's environment variables, so it must be run from an elevated prompt. You can install either the dagit or daemon service or both. The services will be installed as "Dagster <Daemon/Dagit>" in the services listing and will be set up to start automatically, but must be manually started the first time.
 
-Open a Command line window and navigate to `C:\Windows\Microsoft.NET\Framework\v4.0.30319`
-Run the following command to install:
-`installutil.exe -i path\to\project\services\dagster\bin\Release\dagster.exe`
-
-## Set DAGSTER_SERVICE System Environment Variable
-
-Options:
-1. DAGIT: To run dagit (Dagster UI) as service.
-2. DAGSTER: To run dagster as service.
-3. BOTH: To run both dagit and dagster as service.
-
-## PowerShell Scripts
-
-Verify the project path and python environment path in dagit.ps1 and dagster.ps1 in `path\to\project\services\dagster\bin\Release`
-
-You can also modify the host and port that dagit will run on.
-
-Set the Dagster service startup to Automatic and start the service.
-
-browse dagit at http://127.0.0.1:3000/dagster
-
-## See Console Stdout logs
-
-Open PowerShell and run the following Command
-
-`Get-Content D:\dagster\stdout_log.txt -Wait`
+If you wish to uninstall the services, you can run the `uninstall.ps1` script and optionally pass the `-Environment` switch to clean up all the environment variables.

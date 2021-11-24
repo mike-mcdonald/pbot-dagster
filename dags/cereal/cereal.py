@@ -1,6 +1,7 @@
 import requests
 import csv
 
+from dagster import repository  # repo.py
 from datetime import datetime, time
 from dagster import pipeline, solid, DagsterType, OutputDefinition, InputDefinition, TypeCheck, EventMetadataEntry, hourly_schedule, ModeDefinition, fs_io_manager
 
@@ -166,3 +167,10 @@ def cereal_schedule(date):
             }
         }
     }
+
+# repo.py
+
+
+@repository
+def dags_repo():
+    return [cereal_pipeline, cereal_schedule]

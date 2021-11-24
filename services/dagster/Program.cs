@@ -1,25 +1,22 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.ServiceProcess;
-using System.Text;
-using System.Threading.Tasks;
+using NLog.Extensions.Logging;
 
-namespace dagit
-{
-    static class Program
+using dagster;
+
+IHost host = Host
+    .CreateDefaultBuilder(args)
+    .UseWindowsService()
+    .ConfigureLogging((context, logging) =>
     {
-        /// <summary>
-        /// The main entry point for the application.
-        /// </summary>
-        static void Main()
-        {
-            ServiceBase[] ServicesToRun;
-            ServicesToRun = new ServiceBase[]
-            {
-                new RunDagster()
-            };
-            ServiceBase.Run(ServicesToRun);
-        }
-    }
-}
+        logging.ClearProviders();
+        logging.AddEventLog();
+        logging.AddNLog();
+        logging.AddConfiguration(context.Configuration);
+    })
+    .ConfigureServices((context, services) =>
+    {
+        services.Configure<WorkerOptions>(options => context.Configuration.Bind(options));
+        services.AddHostedService<Worker>();
+    })
+    .Build();
+
+await host.RunAsync();
