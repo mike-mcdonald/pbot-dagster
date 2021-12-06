@@ -6,7 +6,7 @@ param (
 Write-Host "Switching to '$Directory'..."
 Set-Location $Directory
 Switch ($Command) {
-    "dagit" { $Command = "dagit"; $Arguments = "-h 0.0.0.0 -p 3000" }
+    "dagit" { $Command = "dagit"; $Arguments = "-l /apps/dagster -p 3030" }
     "daemon" { $Command = "dagster-daemon"; $Arguments = "run" }
     default { $(throw "You must specify either 'dagit' or 'dagster.'") }
 }
