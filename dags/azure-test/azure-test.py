@@ -1,7 +1,6 @@
-
 from datetime import datetime, time
-from dagster import pipeline, solid, resource, hourly_schedule, repository, ModeDefinition
-# pip install dagster-azure, azure-core
+
+from dagster import ModeDefinition, hourly_schedule, pipeline, repository, solid
 from dagster_azure.adls2 import adls2_resource
 
 
@@ -11,17 +10,9 @@ def list_containers(context):
         context.log.info(str(x.name))
 
 
-@pipeline(
-    mode_defs=[
-        ModeDefinition(
-            resource_defs={'adls2': adls2_resource}
-        )
-    ]
-)
+@pipeline(mode_defs=[ModeDefinition(resource_defs={"adls2": adls2_resource})])
 def azure_pipeline():
     list_containers()
-
-# env variable for azure storage key AZURE_DATA_LAKE_STORAGE_KEY
 
 
 @hourly_schedule(
@@ -36,11 +27,7 @@ def azure_schedule(date):
             "adls2": {
                 "config": {
                     "storage_account": "pudldevtest",
-                    "credential": {
-                        "key": {
-                            "env": "AZURE_DATA_LAKE_STORAGE_KEY"
-                        }
-                    }
+                    "credential": {"key": {"env": "AZURE_DATA_LAKE_STORAGE_KEY"}},
                 }
             }
         }

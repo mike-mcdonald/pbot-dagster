@@ -1,22 +1,32 @@
 from datetime import datetime, time
-from conn_manager.conn import get_conn
 from pathlib import Path
 
-from dagster import pipeline, solid, weekly_schedule, repository, ModeDefinition, Field, fs_io_manager, OutputDefinition, InputDefinition, List
-from dagster.config import config_schema
+from conn_manager.conn import get_conn
+from dagster import (
+    Field,
+    InputDefinition,
+    List,
+    ModeDefinition,
+    OutputDefinition,
+    fs_io_manager,
+    pipeline,
+    repository,
+    solid,
+    weekly_schedule,
+)
 from dagster.core.definitions.decorators.schedule import weekly_schedule
-# pip install dagster-azure, azure-core
-from dagster_azure.adls2 import adls2_resource, ADLS2FileManager
+from dagster_azure.adls2 import ADLS2FileManager, adls2_resource
 from sqlalchemy.sql.expression import true
 
 
 @solid(
-    config_schema={"local_path": Field(str),
-                   "remote_path": Field(str),
-                   "azure_container": Field(str),
-                   },
+    config_schema={
+        "local_path": Field(str),
+        "remote_path": Field(str),
+        "azure_container": Field(str),
+    },
     required_resource_keys={"adls2"},
-    output_defs=[OutputDefinition(dagster_type=List)]
+    output_defs=[OutputDefinition(dagster_type=List)],
 )
 def upload_file(context):
     adls_client = context.resources.adls2.adls2_client
@@ -35,7 +45,10 @@ def upload_file(context):
             for dir in dirs:
                 files = [x for x in dir.iterdir() if x.is_file()]
                 file_manager = ADLS2FileManager(
-                    adls2_client=adls_client, file_system=container, prefix=f"{path_to}/{dir.name}/{run_id}")
+                    adls2_client=adls_client,
+                    file_system=container,
+                    prefix=f"{path_to}/{dir.name}/{run_id}",
+                )
                 if len(files) > 0:
                     count = count + len(files)
                     for file in files:
@@ -43,13 +56,12 @@ def upload_file(context):
                             file_manager.write(f, ext=str(file.suffix)[1:])
                         _files.append(file)
                 else:
-                    context.log.info(
-                        f"No files found to upload in: {str(dir)}")
+                    context.log.info(f"No files found to upload in: {str(dir)}")
             context.log.info(f"Number of files uploaded: {str(count)}")
     return _files
 
 
-@solid(input_defs=[InputDefinition('files', dagster_type=List)])
+@solid(input_defs=[InputDefinition("files", dagster_type=List)])
 def cleanup_files(context, files):
 
     if len(files) > 0:
@@ -64,10 +76,7 @@ def cleanup_files(context, files):
 @pipeline(
     mode_defs=[
         ModeDefinition(
-            resource_defs={
-                'adls2': adls2_resource,
-                'io_manager': fs_io_manager
-            }
+            resource_defs={"adls2": adls2_resource, "io_manager": fs_io_manager}
         )
     ]
 )
@@ -92,7 +101,7 @@ def pfht_schedule(date):
                     "storage_account": str(conn.get("host")),
                     "credential": {
                         "key": str(conn.get("password")),
-                    }
+                    },
                 }
             }
         },
@@ -101,10 +110,10 @@ def pfht_schedule(date):
                 "config": {
                     "azure_container": "twilight",
                     "local_path": "//pbotdm1/pudl/pfht",
-                    "remote_path": "pfht"
+                    "remote_path": "pfht",
                 }
             }
-        }
+        },
     }
 
 
