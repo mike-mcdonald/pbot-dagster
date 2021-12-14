@@ -19,15 +19,17 @@ def create_conn_table():
     engine = create_engine(url)
     if database_exists(engine.url):
         meta = MetaData()
-        conn_table = Table('custom_conn', meta,
-                           Column('name', String),
-                           Column('host', String),
-                           Column('schema', String),
-                           Column('login', String),
-                           Column('password', String),
-                           Column('port', Integer),
-                           Column('extra', String),
-                           )
+        conn_table = Table(
+            "custom_conn",
+            meta,
+            Column("name", String),
+            Column("host", String),
+            Column("schema", String),
+            Column("login", String),
+            Column("password", String),
+            Column("port", Integer),
+            Column("extra", String),
+        )
         conn_table.create(engine, checkfirst=True)
 
 
@@ -57,12 +59,12 @@ def upsert_conn(conn_info: Dict[str, Any]):
         raise ValueError("conn_info must contain a connection name.")
 
     name = conn_info["name"].strip()
-    host = conn_info['host'].strip() if 'host' in cols else ""
-    schema = conn_info['schema'].strip() if 'schema' in cols else ""
-    login = conn_info['login'].strip() if 'login' in cols else ""
-    password = conn_info['password'].strip() if 'password' in cols else ""
-    port = conn_info['port'] if 'port' in cols else 0
-    extra = conn_info['extra'].strip() if 'extra' in cols else ""
+    host = conn_info["host"].strip() if "host" in cols else ""
+    schema = conn_info["schema"].strip() if "schema" in cols else ""
+    login = conn_info["login"].strip() if "login" in cols else ""
+    password = conn_info["password"].strip() if "password" in cols else ""
+    port = conn_info["port"] if "port" in cols else 0
+    extra = conn_info["extra"].strip() if "extra" in cols else ""
 
     key = os.environ.get("DAGSTER_AES_KEY").strip()
     if login:
@@ -72,25 +74,28 @@ def upsert_conn(conn_info: Dict[str, Any]):
     if extra:
         extra = _encrypt(key, extra)
 
-    query = text(
-        f"select * from custom_conn where name = '{name}'")
+    query = text(f"select * from custom_conn where name = '{name}'")
     result = conn.execute(query).fetchall()
 
     if len(result) > 0:
-        query = text(f"""update custom_conn
+        query = text(
+            f"""update custom_conn
                     set host = '{host}',
                     schema = '{schema}',
                     login = '{login}',
                     password = '{password}',
                     port = {port},
                     extra = '{extra}'
-                    where name='{name}'""")
+                    where name='{name}'"""
+        )
         conn.execute(query)
     else:
-        query = text(f""" insert into custom_conn
+        query = text(
+            f""" insert into custom_conn
                         (name, host, schema, login, password, port, extra)
                     values
-                        ('{name}','{host}','{schema}','{login}','{password}',{port},'{extra}')""")
+                        ('{name}','{host}','{schema}','{login}','{password}',{port},'{extra}')"""
+        )
         conn.execute(query)
     conn.close()
     engine.dispose()
@@ -103,17 +108,16 @@ def get_conn(conn_name: str):
 
     key = os.environ.get("DAGSTER_AES_KEY").strip()
 
-    query = text(
-        f"select * from custom_conn where name = '{conn_name.strip()}'")
+    query = text(f"select * from custom_conn where name = '{conn_name.strip()}'")
     result = conn.execute(query).fetchone()
     result = result._asdict()
     if result:
         if result.get("login"):
-            result["login"] = _decrypt(key, result['login'])
+            result["login"] = _decrypt(key, result["login"])
         if result.get("password"):
-            result["password"] = _decrypt(key, result['password'])
+            result["password"] = _decrypt(key, result["password"])
         if result.get("extra"):
-            result["extra"] = _decrypt(key, result['extra'])
+            result["extra"] = _decrypt(key, result["extra"])
             result["extra"] = json.loads(result["extra"])
         return result
     else:
