@@ -1,7 +1,6 @@
 from datetime import datetime, time
 from pathlib import Path
 
-from conn_manager.conn import get_conn
 from dagster import (
     Field,
     InputDefinition,
@@ -15,8 +14,7 @@ from dagster import (
     weekly_schedule,
 )
 from dagster.core.definitions.decorators.schedule import weekly_schedule
-from dagster_azure.adls2 import ADLS2FileManager, adls2_resource
-from sqlalchemy.sql.expression import true
+from dagster_resource.azure_resource.azure_data_lake_gen2 import azure_pudl_resource
 
 
 @solid(
@@ -24,16 +22,17 @@ from sqlalchemy.sql.expression import true
         "local_path": Field(str),
         "remote_path": Field(str),
         "azure_container": Field(str),
+        "execution_date": Field(str),
     },
-    required_resource_keys={"adls2"},
+    required_resource_keys={"azure_pudl_resource"},
     output_defs=[OutputDefinition(dagster_type=List)],
 )
 def upload_file(context):
-    adls_client = context.resources.adls2.adls2_client
+    client = context.resources.azure_pudl_resource
     local_path = Path(str(context.solid_config["local_path"]))
-    path_to = context.solid_config["remote_path"]
+    remote_path = context.solid_config["remote_path"]
     container = context.solid_config["azure_container"]
-    run_id = context.run_id
+    execution_date = context.solid_config["execution_date"]
 
     dirs: List(Path) = []
     _files: List(Path) = []
@@ -44,19 +43,19 @@ def upload_file(context):
             count = 0
             for dir in dirs:
                 files = [x for x in dir.iterdir() if x.is_file()]
-                file_manager = ADLS2FileManager(
-                    adls2_client=adls_client,
-                    file_system=container,
-                    prefix=f"{path_to}/{dir.name}/{run_id}",
-                )
                 if len(files) > 0:
-                    count = count + len(files)
                     for file in files:
-                        with file.open("rb") as f:
-                            file_manager.write(f, ext=str(file.suffix)[1:])
+                        try:
+                            client.upload_file(
+                                file_system=container,
+                                local_path=str(file),
+                                remote_path=f"{str(remote_path)}/{dir.name}/{execution_date}/{file.stem}.{str(file.suffix)[1:]}")
+                        except Exception as err:
+                            context.log.error(
+                                f"Failed to write {local_path} to {str(remote_path)}/{dir.name}/{execution_date}/{file.stem}.{str(file.suffix)[1:]}.")
+                            raise err
+                        count += 1
                         _files.append(file)
-                else:
-                    context.log.info(f"No files found to upload in: {str(dir)}")
             context.log.info(f"Number of files uploaded: {str(count)}")
     return _files
 
@@ -66,7 +65,7 @@ def cleanup_files(context, files):
 
     if len(files) > 0:
         for file in files:
-            file.unlink(missing_ok=true)
+            file.unlink(missing_ok=True)
         context.log.info(f"Number of files deleted: {str(len(files))}")
     else:
         context.log.info("No files found to delete.")
@@ -76,7 +75,8 @@ def cleanup_files(context, files):
 @pipeline(
     mode_defs=[
         ModeDefinition(
-            resource_defs={"adls2": adls2_resource, "io_manager": fs_io_manager}
+            resource_defs={"azure_pudl_resource": azure_pudl_resource,
+                           "io_manager": fs_io_manager}
         )
     ]
 )
@@ -92,16 +92,13 @@ def pfht_to_twilight():
     execution_time=time(hour=19, minute=1),
     execution_timezone="US/Pacific",
 )
-def pfht_schedule(date):
-    conn = get_conn("azure_data_lake_gen2")
+def pfht_schedule(context):
+    execution_date = context.scheduled_execution_time.strftime("%m-%d-%Y")
     return {
         "resources": {
-            "adls2": {
+            "azure_pudl_resource": {
                 "config": {
-                    "storage_account": str(conn.get("host")),
-                    "credential": {
-                        "key": str(conn.get("password")),
-                    },
+                    "azure_data_lake_gen2_conn_id": "azure_data_lake_gen2",
                 }
             }
         },
@@ -111,6 +108,7 @@ def pfht_schedule(date):
                     "azure_container": "twilight",
                     "local_path": "//pbotdm1/pudl/pfht",
                     "remote_path": "pfht",
+                    "execution_date": execution_date,
                 }
             }
         },

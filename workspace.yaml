@@ -11,3 +11,6 @@ load_from:
   - python_file:
       relative_path: dags/pfht/pfht_to_twilight.py
       working_directory: /opt/dagster/dagster_home/dags/pfht
+  - python_file:
+      relative_path: dags/tsup/tsup_to_twilight.py
+      working_directory: /opt/dagster/dagster_home/dags/tsup
