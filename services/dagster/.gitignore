@@ -1,2 +1,8 @@
+.vs/
 bin/
 obj/
+
+*.user
+*.suo
+*.pdb
+*.pfx

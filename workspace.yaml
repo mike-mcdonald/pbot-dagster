@@ -1,16 +1,13 @@
 load_from:
   - python_file:
-      relative_path: dags/cereal/cereal.py
-      working_directory: /opt/dagster/dagster_home/dags/cereal
+      relative_path: src/repositories/tests.py
+      working_directory: src
   - python_file:
-      relative_path: dags/azure-test/azure-test.py
-      working_directory: /opt/dagster/dagster_home/dags/azure-test
+      relative_path: src/repositories/connections.py
+      working_directory: src
   - python_file:
-      relative_path: dags/connections/manage_conns.py
-      working_directory: /opt/dagster/dagster_home/dags/connections
+      relative_path: src/repositories/pfht_to_twilight.py
+      working_directory: src
   - python_file:
-      relative_path: dags/pfht/pfht_to_twilight.py
-      working_directory: /opt/dagster/dagster_home/dags/pfht
-  - python_file:
-      relative_path: dags/tsup/tsup_to_twilight.py
-      working_directory: /opt/dagster/dagster_home/dags/tsup
+      relative_path: src/repositories/tsup_to_twilight.py
+      working_directory: src
