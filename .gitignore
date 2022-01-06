@@ -1,3 +1,4 @@
+.certs/
 .telemetry/
 .venv/
 .vscode/
