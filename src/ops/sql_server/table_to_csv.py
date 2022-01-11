@@ -39,17 +39,23 @@ def table_to_csv(context: OpExecutionContext, table: str) -> str:
     schema = context.op_config["schema"]
     batch_size = context.op_config["batch_size"]
 
+    substitutions = {"schema": schema, "table": table}
+    if "substitutions" in context.op_config:
+        substitutions = dict(**substitutions, **context.op_config["substitutions"])
+
     local_path = Path(
         apply_substitutions(
             template_string=context.op_config["path"],
-            substitutions={"schema": schema, "table": table},
+            substitutions=substitutions,
             context=context,
         )
     ).resolve()
 
+    local_path.parent.resolve().mkdir(parents=True, exist_ok=True)
+
     conn: MSSqlServerResource = context.resources.sql_server
 
-    cursor: pyodbc.Cursor = conn.execute(f"select * from [{schema}].[{table}]")
+    cursor: pyodbc.Cursor = conn.execute(context, f"select * from [{schema}].[{table}]")
 
     context.log.info(f"🚀 Started processing {schema}.{table} to {local_path}...")
     trace = datetime.now()

@@ -1,7 +1,8 @@
 from contextlib import contextmanager
+from textwrap import dedent
 from typing import List
 
-from dagster import resource
+from dagster import OpExecutionContext, resource
 
 import pyodbc
 
@@ -25,28 +26,33 @@ class MSSqlServerResource(BaseResource):
         connection = super().get_connection(self.sql_server_conn_id)
 
         connection_args = [
-            f"host={connection.host}",
-            "driver=ODBC+Driver+17+for+SQL+Server",
+            f"SERVER={connection.host}",
+            "DRIVER={ODBC Driver 17 for SQL Server}",
         ]
 
         if connection.schema:
-            connection_args.append(f"database={connection.schema}")
+            connection_args.append(f"DATABASE={connection.schema}")
 
         # If we have login/password in the connection object use that,
         # otherwise assume it is using Windows authentication
         connection_args.extend(
-            [f"user={connection.login}", f"password={connection.password}"]
+            [f"UID={connection.login}", f"PWD={connection.password}"]
         ) if connection.login is not None else connection_args.append(
             "Trusted_Connection=yes"
         )
 
         for key, value in connection.extra_dejson.items():
-            connection_args.append(f"{key}={value}")
+            connection_args.append(f"{str(key).upper()}={value}")
 
-        return pyodbc.connect(*connection_args, autocommit=True)
+        return pyodbc.connect(";".join(connection_args), autocommit=True)
 
-    def get_tables(self, schema: str = None) -> List[str]:
-        cursor = self.client.execute(
+    def get_tables(
+        self,
+        context: OpExecutionContext,
+        schema: str = None,
+    ) -> List[str]:
+        cursor = self.execute(
+            context,
             f"""
         select table_name
         from information_schema.tables
@@ -61,17 +67,18 @@ class MSSqlServerResource(BaseResource):
 
         return [x.table_name for x in rows]
 
-    def execute(self, sql: str, *params):
+    def execute(self, context: OpExecutionContext, sql: str, *params):
+        context.log.info(f"🚀 Executing: {dedent(sql)} with params: {params}")
         return self.client.execute(sql, *params)
 
 
-@resource(config_schema={"sql_server_conn_id": str})
+@resource(config_schema={"mssql_server_conn_id": str})
 @contextmanager
 def mssql_resource(init_context):
+    conn = MSSqlServerResource(
+        sql_server_conn_id=init_context.resource_config["mssql_server_conn_id"]
+    )
     try:
-        s = MSSqlServerResource(
-            mssql_conn_id=init_context.resource_config["mssql_conn_id"]
-        )
-        yield s
+        yield conn
     finally:
-        s.client.close()
+        conn.client.close()
