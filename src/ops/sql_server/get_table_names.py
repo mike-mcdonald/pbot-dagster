@@ -1,5 +1,9 @@
 import re
 
+from typing import (
+    List as PyList,
+)
+
 from dagster import (
     Array,
     DynamicOut,
@@ -15,7 +19,7 @@ from dagster import (
 from resources.mssql import MSSqlServerResource
 
 
-def __get_table_names(context: OpExecutionContext) -> list[str]:
+def __get_table_names(context: OpExecutionContext) -> PyList[str]:
     conn: MSSqlServerResource = context.resources.sql_server
     schema = context.op_config["schema"]
     exclusions = context.op_config["exclude"]
