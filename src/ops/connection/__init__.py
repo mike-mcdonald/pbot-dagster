@@ -55,13 +55,18 @@ def list_connections():
 def add_connection(context: OpExecutionContext):
     conn: Connection = Connection(
         conn_id=context.op_config["conn_id"],
-        host=context.op_config["host"],
-        schema=context.op_config["schema"],
-        login=context.op_config["login"],
-        password=context.op_config["password"],
-        port=context.op_config["port"],
-        extra=context.op_config["extra"],
     )
+
+    for prop in {
+        "host",
+        "schema",
+        "login",
+        "password",
+        "port",
+        "extra",
+    }:
+        if prop in context.op_config:
+            conn.__setattr__(prop, context.op_config[prop])
 
     conn = add_model(conn)
 
