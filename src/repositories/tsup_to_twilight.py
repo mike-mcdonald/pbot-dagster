@@ -43,7 +43,7 @@ def tsup_schedule(context):
             "sql_server": {"config": {"mssql_server_conn_id": "mssql_server_tsup"}},
         },
         "ops": {
-            "get_table_names_dyanmic": {
+            "get_table_names_dynamic": {
                 "config": {"schema": "TSUP", "exclude": "z_history"}
             },
             "table_to_csv": {

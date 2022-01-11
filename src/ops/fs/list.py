@@ -58,7 +58,7 @@ def list_dir(context: OpExecutionContext):
     },
     out=DynamicOut(String, description="The files in the directory"),
 )
-def list_dir_dynamic(context: OpExecutionContext, local_path: str):
+def list_dir_dynamic(context: OpExecutionContext):
     path = Path(context.op_config["path"]).resolve()
 
     if path.is_file():
