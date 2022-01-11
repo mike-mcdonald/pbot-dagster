@@ -90,8 +90,10 @@ class Connection(Base):
 
     def get_password(self) -> Optional[str]:
         """Return encrypted password."""
-        key = os.environ.get("DAGSTER_AES_KEY").strip()
-        return decrypt(key, self._password)
+        if self._password:
+            key = os.environ.get("DAGSTER_AES_KEY").strip()
+            return decrypt(key, self._password)
+        return None
 
     def set_password(self, value: Optional[str]):
         """Encrypt password and set in object attribute."""
@@ -108,14 +110,16 @@ class Connection(Base):
 
     def get_extra(self) -> Dict:
         """Return encrypted extra-data."""
-        key = os.environ.get("DAGSTER_AES_KEY").strip()
-        return decrypt(key, self._extra)
+        if self._extra:
+            key = os.environ.get("DAGSTER_AES_KEY").strip()
+            return decrypt(key, self._extra)
+        return None
 
-    def set_extra(self, value: str):
+    def set_extra(self, value: dict):
         """Encrypt extra-data and save in object attribute to object."""
         if value:
             key = os.environ.get("DAGSTER_AES_KEY").strip()
-            self._extra = encrypt(key, value)
+            self._extra = encrypt(key, json.dumps(value))
 
     @declared_attr
     def extra(cls):
@@ -130,12 +134,5 @@ class Connection(Base):
         """Returns the extra property by deserializing json."""
         obj = {}
         if self.extra:
-            try:
-                obj = json.loads(self.extra)
-
-            except JSONDecodeError:
-                self.log.exception(
-                    "Failed parsing the json for conn_id %s", self.conn_id
-                )
-
+            obj = json.loads(self.extra)
         return obj
