@@ -5,4 +5,4 @@ dagster-azure
 sqlalchemy
 sqlalchemy_utils
 psycopg2-binary
-./packages
+pyodbc
