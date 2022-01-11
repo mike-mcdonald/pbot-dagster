@@ -4,19 +4,21 @@ services:
   # This service runs the postgres DB used by dagster for run storage, schedule storage,
   # and event log storage.
   postgres:
-    image: postgres:11
+    image: postgres:13
     container_name: postgres
     environment:
       POSTGRES_USER: "dagster"
       POSTGRES_PASSWORD: "dagster"
       POSTGRES_DB: "dagster"
     volumes:
-        - "db:/var/lib/postgresql/data"
+      - "db:/var/lib/postgresql/data"
     networks:
-        - dagster-network
+      - dagster-network
 
   # This service runs dagit, which loads the pipelines from the user code container.
+
   # Since our instance uses the QueuedRunCoordinator, any runs submitted from dagit will be put on
+
   # a queue and later dequeued and launched by dagster-daemon.
   web_server:
     build:
@@ -41,15 +43,17 @@ services:
       DAGSTER_POSTGRES_HOST: "postgres"
       DAGSTER_POSTGRES_PORT: 5432
       DAGSTER_AES_KEY: "IF1/eRidqM+6m1hVXLeGOg=="
-    volumes: # Make docker client accessible so we can terminate containers from dagit
+    volumes:
+      # Make docker client accessible so we can terminate containers from dagit
       - /var/run/docker.sock:/var/run/docker.sock
-      - ".:/opt/dagster/dagster_home"
+      - ".:/opt/dagster"
     networks:
       - dagster-network
     depends_on:
       - postgres
 
   # This service runs the dagster-daemon process, which is responsible for taking runs
+
   # off of the queue and launching them, as well as creating runs from schedules or sensors.
   scheduler:
     build:
@@ -67,9 +71,10 @@ services:
       DAGSTER_POSTGRES_PORT: 5432
       DAGSTER_AES_KEY: "IF1/eRidqM+6m1hVXLeGOg=="
       AZURE_DATA_LAKE_STORAGE_KEY: ${AZURE_DATA_LAKE_STORAGE_KEY}
-    volumes: # Make docker client accessible so we can launch containers using host docker
+    volumes:
+      # Make docker client accessible so we can launch containers using host docker
       - /var/run/docker.sock:/var/run/docker.sock
-      - ".:/opt/dagster/dagster_home"
+      - ".:/opt/dagster"
     networks:
       - dagster-network
     depends_on:
@@ -80,4 +85,4 @@ networks:
     driver: bridge
     name: dagster-network
 volumes:
-  db:
+  db: null

@@ -8,7 +8,7 @@ ENV DAGSTER_HOME=/opt/dagster \
     REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 
 COPY .certs/ /usr/local/share/ca-certificates
-COPY requirements_dagit.txt requirements_dagster.txt /tmp/
+COPY requirements.*.txt ${DAGSTER_HOME}/
 
 RUN set -ex \
     && buildDeps='\
@@ -33,8 +33,9 @@ RUN set -ex \
     && apt-get upgrade -yqq \
     && ACCEPT_EULA=Y apt-get install -yqq --no-install-recommends msodbcsql17 \
     && pip config set global.cert /etc/ssl/certs/ca-certificates.crt \
-    && pip install -r /tmp/requirements_dagit.txt \
-    && pip install -r /tmp/requirements_dagster.txt \
+    && pip install -r ${DAGSTER_HOME}/requirements.dagit.txt \
+    && pip install -r ${DAGSTER_HOME}/requirements.dagster.txt \
+    && pip cache purge \
     && apt-get purge --auto-remove -yqq $buildDeps \
     && apt-get autoremove -yqq --purge \
     && apt-get clean \
@@ -45,10 +46,6 @@ RUN set -ex \
     /usr/share/man \
     /usr/share/doc \
     /usr/share/doc-base
-
-# Prevent cache busting on rebuilds for just packages changes
-COPY packages ${DAGSTER_HOME}/packages
-RUN pip install ${DAGSTER_HOME}/packages
 
 COPY dagster.yaml workspace.yaml ${DAGSTER_HOME}
 

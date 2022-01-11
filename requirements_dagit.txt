@@ -1,8 +1,0 @@
-dagster-graphql
-dagit
-dagster-postgres
-dagster-azure
-sqlalchemy
-sqlalchemy_utils
-psycopg2-binary
-pyodbc

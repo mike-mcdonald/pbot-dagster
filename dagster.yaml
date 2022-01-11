@@ -1,3 +1,6 @@
+telemetry:
+  enabled: false
+
 scheduler:
   module: dagster.core.scheduler
   class: DagsterDaemonScheduler
@@ -20,7 +23,6 @@ run_coordinator:
 run_launcher:
   module: dagster.core.launcher
   class: DefaultRunLauncher
-
 
 # Configure PostgreSQL for DAG run history persistence.
 run_storage:
@@ -72,7 +74,6 @@ event_log_storage:
         env: DAGSTER_POSTGRES_DB
       port:
         env: DAGSTER_POSTGRES_PORT
-
 # to write stdout & stderr logs to azure blob storage.
 # by default it is written to WORKDIR/logs
 # compute_logs:
