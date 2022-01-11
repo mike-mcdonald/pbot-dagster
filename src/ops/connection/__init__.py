@@ -4,6 +4,7 @@ from dagster import (
     DynamicOutput,
     Field,
     Int,
+    Noneable,
     OpExecutionContext,
     Out,
     op,
@@ -42,12 +43,12 @@ def list_connections():
 @op(
     config_schema={
         "conn_id": Field(str),
-        "host": Field(str, default_value=""),
-        "schema": Field(str, default_value=""),
-        "login": Field(str),
-        "password": Field(str),
-        "port": Field(Int, default_value=0),
-        "extra": Field(dict, default_value={}),
+        "host": Field(Noneable(str), is_required=False),
+        "schema": Field(Noneable(str), is_required=False),
+        "login": Field(Noneable(str), is_required=False),
+        "password": Field(Noneable(str), is_required=False),
+        "port": Field(Noneable(Int), is_required=False),
+        "extra": Field(Noneable(dict), is_required=False),
     },
     out=Out(Dict),
 )
@@ -70,12 +71,12 @@ def add_connection(context: OpExecutionContext):
 @op(
     config_schema={
         "conn_id": Field(str),
-        "host": Field(str, is_required=False),
-        "schema": Field(str, is_required=False),
-        "login": Field(str, is_required=False),
-        "password": Field(str, is_required=False),
-        "port": Field(Int, is_required=False),
-        "extra": Field(dict, is_required=False),
+        "host": Field(Noneable(str), is_required=False),
+        "schema": Field(Noneable(str), is_required=False),
+        "login": Field(Noneable(str), is_required=False),
+        "password": Field(Noneable(str), is_required=False),
+        "port": Field(Noneable(Int), is_required=False),
+        "extra": Field(Noneable(dict), is_required=False),
     },
     out=Out(Dict),
 )
