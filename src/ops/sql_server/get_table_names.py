@@ -52,7 +52,7 @@ def __get_table_names(context: OpExecutionContext) -> PyList[str]:
     out=Out(List[String], description="The names of tables in the specifed schema"),
     required_resource_keys={"sql_server"},
 )
-def get_table_names(context: OpExecutionContext) -> list[str]:
+def get_table_names(context: OpExecutionContext) -> PyList[str]:
     return __get_table_names(context)
 
 
@@ -69,7 +69,7 @@ def get_table_names(context: OpExecutionContext) -> list[str]:
     out=DynamicOut(String, description="The names of tables in the specifed schema"),
     required_resource_keys={"sql_server"},
 )
-def get_table_names_dynamic(context: OpExecutionContext) -> list[str]:
+def get_table_names_dynamic(context: OpExecutionContext) -> PyList[str]:
     schema = context.op_config["schema"]
 
     for name in __get_table_names(context):
