@@ -44,7 +44,7 @@ def tsup_schedule(context):
         },
         "ops": {
             "get_table_names_dynamic": {
-                "config": {"schema": "TSUP", "exclude": "z_history"}
+                "config": {"schema": "TSUP", "exclude": ["z_history"]}
             },
             "table_to_csv": {
                 "config": {
