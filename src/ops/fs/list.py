@@ -1,6 +1,7 @@
 import hashlib
 
 from pathlib import Path
+from typing import Generator
 
 from dagster import (
     Bool,
@@ -13,6 +14,15 @@ from dagster import (
     String,
     op,
 )
+
+
+def traverse(p: Path, recurse: bool) -> Generator[Path]:
+    for x in p.iterdir():
+        if x.is_dir():
+            if recurse:
+                yield from traverse(p / x.name, recurse)
+        else:
+            yield x
 
 
 @op(
@@ -34,19 +44,7 @@ def list_dir(context: OpExecutionContext):
         context.log.warning(f"'{path}' is a file!")
         return path
 
-    files: list(Path) = []
-
-    def recursive(p: Path):
-        for x in p.iterdir():
-            if x.is_dir():
-                if "recursive" in context.op_config and context.op_config["recursive"]:
-                    recursive(p / x.name)
-            else:
-                files.append(x)
-
-    recursive(path)
-
-    return [str(x.resolve()) for x in files]
+    return [str(x.resolve()) for x in traverse(path, context.op_config["recursive"])]
 
 
 @op(
@@ -69,18 +67,11 @@ def list_dir_dynamic(context: OpExecutionContext):
         )
         return
 
-    def recursive(p: Path):
-        for x in p.iterdir():
-            if x.is_dir():
-                if context.op_config["recursive"]:
-                    recursive(p / x.name)
-            else:
-                yield DynamicOutput(
-                    value=str(x),
-                    mapping_key=hashlib.sha256(str(x).encode("utf8")).hexdigest(),
-                )
-
-    recursive(path)
+    for x in traverse(path, context.op_config["recursive"]):
+        yield DynamicOutput(
+            value=str(x),
+            mapping_key=hashlib.sha256(str(x).encode("utf8")).hexdigest(),
+        )
 
 
 @op(
@@ -97,12 +88,4 @@ def list_glob(context: OpExecutionContext):
         Path(context.op_config["base_dir"]).resolve().glob(context.op_config["glob"])
     )
 
-    files: list(Path) = []
-
-    for path in paths:
-        if path.is_dir():
-            context.log.warning(f"'{path}' is a directory! Skipping...")
-        else:
-            files.append(path)
-
-    return [str(f.resolve()) for f in files]
+    return [str(path.resolve()) for path in paths if path.is_file()]
