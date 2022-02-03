@@ -1,7 +1,7 @@
 import hashlib
 
 from pathlib import Path
-from typing import Generator
+from typing import Any, Generator
 
 from dagster import (
     Bool,
@@ -16,7 +16,7 @@ from dagster import (
 )
 
 
-def traverse(p: Path, recurse: bool) -> Generator[Path]:
+def traverse(p: Path, recurse: bool) -> Generator[Path, Any, Any]:
     for x in p.iterdir():
         if x.is_dir():
             if recurse:
