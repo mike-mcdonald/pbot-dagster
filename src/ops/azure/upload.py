@@ -49,11 +49,12 @@ def __upload_file(context: OpExecutionContext, path: Path):
     remote_path: str = context.op_config["remote_path"]
     container = context.op_config["container"]
 
-    if "base_dir" in context.op_config:
-        local_path = local_path.relative_to(Path(context.op_config["base_dir"]))
-
     remote_path = __template_path(
-        local_path=local_path,
+        local_path=(
+            local_path.relative_to(Path(context.op_config["base_dir"]))
+            if "base_dir" in context.op_config
+            else local_path
+        ),
         remote_path=context.op_config["remote_path"],
         context=context,
     )
