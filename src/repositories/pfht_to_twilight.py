@@ -45,7 +45,7 @@ def pfht_schedule(context: ScheduleExecutionContext):
                 "config": {
                     "base_dir": DIRECTORY,
                     "container": "twilight",
-                    "remote_path": "dagster/${pipeline_name}/${parent}/${execution_date}${suffix}",
+                    "remote_path": "dagster/${pipeline_name}/${parent}/${execution_date}/${name}",
                     "substitutions": {
                         "execution_date": context.scheduled_execution_time.strftime(
                             "%Y%m%d"
