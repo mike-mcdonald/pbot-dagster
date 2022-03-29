@@ -32,7 +32,7 @@ def __get_table_names(context: OpExecutionContext) -> PyList[str]:
     context.log.info(f"👍 Retrieved tables {tables}")
 
     if len(inclusions) > 0:
-        context.log.info(f"returning table names specified in {inclusions} ")
+        context.log.info(f"Including tables based on '{inclusions}'...")
         for inclusion in inclusions:
             inclusion = re.compile(inclusion)
             tables = [t for t in tables if inclusion.match(t)]
@@ -64,8 +64,7 @@ def __get_table_names(context: OpExecutionContext) -> PyList[str]:
             is_required=False,
         ),
     },
-    out=Out(List[String],
-            description="The names of tables in the specifed schema"),
+    out=Out(List[String], description="The names of tables in the specifed schema"),
     required_resource_keys={"sql_server"},
 )
 def get_table_names(context: OpExecutionContext) -> PyList[str]:
@@ -88,8 +87,7 @@ def get_table_names(context: OpExecutionContext) -> PyList[str]:
             is_required=False,
         ),
     },
-    out=DynamicOut(
-        String, description="The names of tables in the specifed schema"),
+    out=DynamicOut(String, description="The names of tables in the specifed schema"),
     required_resource_keys={"sql_server"},
 )
 def get_table_names_dynamic(context: OpExecutionContext) -> PyList[str]:
@@ -99,6 +97,5 @@ def get_table_names_dynamic(context: OpExecutionContext) -> PyList[str]:
         yield DynamicOutput(
             value=name,
             # create a mapping key from the file name
-            mapping_key=f"{schema}.{name}".replace(
-                ".", "_").replace("-", "_").lower(),
+            mapping_key=f"{schema}.{name}".replace(".", "_").replace("-", "_").lower(),
         )
