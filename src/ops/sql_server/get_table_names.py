@@ -23,6 +23,7 @@ def __get_table_names(context: OpExecutionContext) -> PyList[str]:
     conn: MSSqlServerResource = context.resources.sql_server
     schema = context.op_config["schema"]
     exclusions = context.op_config["exclude"]
+    inclusions = context.op_config["include"]
 
     context.log.info(f"🚀 Retrieving tables in '{schema}' schema...")
 
@@ -30,11 +31,19 @@ def __get_table_names(context: OpExecutionContext) -> PyList[str]:
 
     context.log.info(f"👍 Retrieved tables {tables}")
 
-    if exclusions:
+    if len(inclusions) > 0:
+        context.log.info(f"Including tables based on '{inclusions}'...")
+        for inclusion in inclusions:
+            inclusion = re.compile(inclusion)
+            tables = [t for t in tables if inclusion.match(t)]
+
+    if len(exclusions) > 0:
         context.log.info(f"Excluding some tables based on '{exclusions}'...")
         for exclusion in exclusions:
             exclusion = re.compile(exclusion)
             tables = [t for t in tables if not exclusion.match(t)]
+
+    context.log.info(f"Tables being processed: {tables}")
 
     return tables
 
@@ -45,6 +54,12 @@ def __get_table_names(context: OpExecutionContext) -> PyList[str]:
         "exclude": Field(
             Array(String),
             description="List of tables names to exclude from processing. Values will be parsed as regular expressions.",
+            default_value=[],
+            is_required=False,
+        ),
+        "include": Field(
+            Array(String),
+            description="List of tables names to include in processing. Values will be parsed as regular expressions.",
             default_value=[],
             is_required=False,
         ),
@@ -62,6 +77,12 @@ def get_table_names(context: OpExecutionContext) -> PyList[str]:
         "exclude": Field(
             Array(String),
             description="List of tables names to exclude from processing. Values will be parsed as regular expressions.",
+            default_value=[],
+            is_required=False,
+        ),
+        "include": Field(
+            Array(String),
+            description="List of table names to include in processing. Values will be parsed as regular expressions.",
             default_value=[],
             is_required=False,
         ),
