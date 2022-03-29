@@ -65,5 +65,5 @@ def amanda_schedule(context):
 
 
 @repository
-def tsup_repo():
+def amanda_repo():
     return [amanda_to_twilight, amanda_schedule]
