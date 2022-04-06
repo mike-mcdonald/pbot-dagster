@@ -37,12 +37,8 @@ def __template_path(local_path: Path, remote_path: str, context: OpExecutionCont
 
 
 def __upload_file(context: OpExecutionContext, path: Path):
-    local_path = Path(path).resolve()
-
-    if local_path.is_dir():
-        raise ValueError(
-            f"{local_path} is a directory. Use `upload_directory` instead."
-        )
+    if path.is_dir():
+        raise ValueError(f"{path} is a directory. Use `upload_directory` instead.")
 
     client: AzureDataLakeGen2Resource = context.resources.adls2_resource
 
@@ -51,32 +47,32 @@ def __upload_file(context: OpExecutionContext, path: Path):
 
     remote_path = __template_path(
         local_path=(
-            local_path.relative_to(Path(context.op_config["base_dir"]))
+            path.relative_to(Path(context.op_config["base_dir"]))
             if "base_dir" in context.op_config
-            else local_path
+            else path
         ),
         remote_path=context.op_config["remote_path"],
         context=context,
     )
 
-    context.log.info(f"🚀 Uploading {local_path} to {remote_path} in {container}...")
+    context.log.info(f"🚀 Uploading {path} to {remote_path} in {container}...")
     trace = datetime.now()
 
     try:
         client.upload_file(
             file_system=container,
-            local_path=local_path,
+            local_path=path,
             remote_path=remote_path,
         )
     except Exception as err:
-        context.log.error(f"Failed to write {local_path} to {remote_path}.")
+        context.log.error(f"Failed to write {path} to {remote_path}.")
         raise err
 
     context.log.info(
-        f"⌚ Uploading {local_path} to {remote_path} took {datetime.now() - trace}"
+        f"⌚ Uploading {path} to {remote_path} took {datetime.now() - trace}"
     )
 
-    return str(local_path)
+    return str(path)
 
 
 @op(
