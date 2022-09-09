@@ -1,13 +1,16 @@
+from datetime import datetime
 from dagster import (
+    ScheduleEvaluationContext,
     fs_io_manager,
     job,
     repository,
     schedule,
 )
 
+from ops.append_columns import append_columns_to_parquet
 from ops.azure import upload_file
 from ops.fs import remove_files
-from ops.sql_server import get_table_names_dynamic, table_to_csv
+from ops.sql_server import get_table_names_dynamic, table_to_parquet
 
 from resources import adls2_resource
 from resources.mssql import mssql_resource
@@ -21,7 +24,12 @@ from resources.mssql import mssql_resource
     }
 )
 def amanda_to_twilight():
-    files = get_table_names_dynamic().map(table_to_csv).map(upload_file)
+    files = (
+        get_table_names_dynamic()
+        .map(table_to_parquet)
+        .map(append_columns_to_parquet)
+        .map(upload_file)
+    )
 
     remove_files(files.collect())
 
@@ -31,7 +39,7 @@ def amanda_to_twilight():
     cron_schedule="0 1 * * *",
     execution_timezone="US/Pacific",
 )
-def amanda_schedule(context):
+def amanda_schedule(context: ScheduleEvaluationContext):
     execution_date = context.scheduled_execution_time.strftime("%Y%m%d")
     return {
         "resources": {
@@ -46,13 +54,14 @@ def amanda_schedule(context):
             "get_table_names_dynamic": {
                 "config": {"schema": "dbo", "include": ["PBOT_ROW_COORDINATION"]}
             },
-            "table_to_csv": {
+            "table_to_parquet": {
                 "config": {
                     "schema": "dbo",
-                    "path": "//pbotdm1/pudl/amanda/${execution_date}/${table}.csv",
+                    "path": "//pbotdm1/pudl/amanda/${execution_date}/${table}.parquet",
                     "substitutions": {"execution_date": execution_date},
                 }
             },
+            "append_columns_to_parquet": {"map": {"seen": datetime.now()}},
             "upload_file": {
                 "config": {
                     "container": "twilight",
