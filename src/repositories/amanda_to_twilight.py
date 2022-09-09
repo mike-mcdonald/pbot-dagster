@@ -1,5 +1,6 @@
 from datetime import datetime
 from dagster import (
+    RunRequest,
     ScheduleEvaluationContext,
     fs_io_manager,
     job,
@@ -41,36 +42,43 @@ def amanda_to_twilight():
 )
 def amanda_schedule(context: ScheduleEvaluationContext):
     execution_date = context.scheduled_execution_time.strftime("%Y%m%d")
-    return {
-        "resources": {
-            "adls2_resource": {
-                "config": {
-                    "azure_data_lake_gen2_conn_id": "azure_data_lake_gen2",
-                }
+    return RunRequest(
+        run_key=execution_date,
+        run_config={
+            "resources": {
+                "adls2_resource": {
+                    "config": {
+                        "azure_data_lake_gen2_conn_id": "azure_data_lake_gen2",
+                    }
+                },
+                "sql_server": {
+                    "config": {"mssql_server_conn_id": "mssql_server_amanda"}
+                },
             },
-            "sql_server": {"config": {"mssql_server_conn_id": "mssql_server_amanda"}},
+            "ops": {
+                "get_table_names_dynamic": {
+                    "config": {"schema": "dbo", "include": ["PBOT_ROW_COORDINATION"]}
+                },
+                "table_to_parquet": {
+                    "config": {
+                        "schema": "dbo",
+                        "path": "//pbotdm1/pudl/amanda/${execution_date}/${table}.parquet",
+                        "substitutions": {"execution_date": execution_date},
+                    }
+                },
+                "append_columns_to_parquet": {
+                    "config": {"map": {"seen": datetime.now()}}
+                },
+                "upload_file": {
+                    "config": {
+                        "container": "twilight",
+                        "remote_path": "dagster/${pipeline_name}/${stem}/${execution_date}${suffix}",
+                        "substitutions": {"execution_date": execution_date},
+                    }
+                },
+            },
         },
-        "ops": {
-            "get_table_names_dynamic": {
-                "config": {"schema": "dbo", "include": ["PBOT_ROW_COORDINATION"]}
-            },
-            "table_to_parquet": {
-                "config": {
-                    "schema": "dbo",
-                    "path": "//pbotdm1/pudl/amanda/${execution_date}/${table}.parquet",
-                    "substitutions": {"execution_date": execution_date},
-                }
-            },
-            "append_columns_to_parquet": {"map": {"seen": datetime.now()}},
-            "upload_file": {
-                "config": {
-                    "container": "twilight",
-                    "remote_path": "dagster/${pipeline_name}/${stem}/${execution_date}${suffix}",
-                    "substitutions": {"execution_date": execution_date},
-                }
-            },
-        },
-    }
+    )
 
 
 @repository
