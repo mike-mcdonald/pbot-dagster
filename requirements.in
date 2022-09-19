@@ -1,5 +1,6 @@
 azure-identity
 azure-storage-file-datalake
+dagit
 dagster
 dagster-graphql
 dagster-postgres
