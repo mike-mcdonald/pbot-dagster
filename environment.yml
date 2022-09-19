@@ -2,8 +2,7 @@ name: dagster
 channels:
   - conda-forge
 dependencies:
-  - abseil-cpp=20211102.0=h36ffca9_3
-  - arrow-cpp=9.0.0=py310h07bbf7a_1_cpu
+  - arrow-cpp=9.0.0=py310h1b77788_6_cpu
   - aws-c-cal=0.5.11=he19cf47_0
   - aws-c-common=0.6.2=h8ffe710_0
   - aws-c-event-stream=0.2.7=h70e1b0c_13
@@ -12,13 +11,13 @@ dependencies:
   - aws-sdk-cpp=1.8.186=hb0612c5_3
   - bzip2=1.0.8=h8ffe710_4
   - c-ares=1.18.1=h8ffe710_0
-  - ca-certificates=2022.6.15=h5b45459_0
+  - ca-certificates=2022.9.14=h5b45459_0
   - gflags=2.2.2=ha925a31_1004
   - glog=0.6.0=h4797de2_0
-  - grpc-cpp=1.46.4=hf179a9a_4
+  - grpc-cpp=1.47.1=h535cfc9_6
   - intel-openmp=2022.1.0=h57928b3_3787
   - krb5=1.19.3=h1176d77_0
-  - libabseil-static=20211102.0=cxx11_h58a5ce6_3
+  - libabseil=20220623.0=cxx17_h1a56200_4
   - libblas=3.9.0=16_win64_mkl
   - libbrotlicommon=1.0.9=h8ffe710_7
   - libbrotlidec=1.0.9=h8ffe710_7
@@ -27,25 +26,21 @@ dependencies:
   - libcrc32c=1.1.2=h0e60522_0
   - libcurl=7.83.1=h789b8ee_0
   - libffi=3.4.2=h8ffe710_5
-  - libgoogle-cloud=1.40.2=hbb088ed_0
+  - libgoogle-cloud=2.2.0=hc8dde07_1
   - liblapack=3.9.0=16_win64_mkl
-  - libpq=14.5=hfcc5ef8_0
-  - libprotobuf=3.20.1=h12be248_4
+  - libprotobuf=3.21.6=h12be248_0
   - libsqlite=3.39.3=hcfcfb64_0
   - libssh2=1.10.0=h680486a_3
-  - libthrift=0.16.0=h636ae23_1
+  - libthrift=0.16.0=h9f558f2_2
   - libutf8proc=2.7.0=hcb41399_0
-  - libzlib=1.2.12=h8ffe710_2
+  - libzlib=1.2.12=hcfcfb64_3
   - lz4-c=1.9.3=h8ffe710_1
   - mkl=2022.1.0=h6a75c08_874
-  - numpy=1.23.2=py310h8a5b91a_0
+  - numpy=1.23.3=py310h4a8f9c9_0
   - openssl=1.1.1q=h8ffe710_0
   - parquet-cpp=1.5.1=2
   - pip=22.2.2=pyhd8ed1ab_0
-  - psycopg2=2.9.3=py310hcbf9ad4_0
-  - pyarrow=9.0.0=py310h6bd7e29_1_cpu
-  - pycryptodome=3.15.0=py310he2412df_0
-  - pyodbc=4.0.34=py310h8a704f9_0
+  - pyarrow=9.0.0=py310he420982_6_cpu
   - python=3.10.6=h9a09f29_0_cpython
   - python_abi=3.10=2_cp310
   - re2=2022.06.01=h0e60522_0
@@ -59,4 +54,5 @@ dependencies:
   - vs2015_runtime=14.29.30139=h890b9b1_7
   - wheel=0.37.1=pyhd8ed1ab_0
   - xz=5.2.6=h8d14728_0
+  - zlib=1.2.12=hcfcfb64_3
   - zstd=1.5.2=h7755175_4
