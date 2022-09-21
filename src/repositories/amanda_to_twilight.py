@@ -67,7 +67,7 @@ def amanda_schedule(context: ScheduleEvaluationContext):
                     }
                 },
                 "append_columns_to_parquet": {
-                    "config": {"map": {"seen": datetime.now()}}
+                    "config": {"map": {"seen": str(datetime.now())}}
                 },
                 "upload_file": {
                     "config": {

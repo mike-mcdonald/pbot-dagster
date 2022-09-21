@@ -1,5 +1,6 @@
 from dagster import (
-    ScheduleExecutionContext,
+    RunRequest,
+    ScheduleEvaluationContext,
     fs_io_manager,
     job,
     repository,
@@ -28,33 +29,33 @@ def pfht_to_twilight():
     cron_schedule="0 6 * * *",
     execution_timezone="US/Pacific",
 )
-def pfht_schedule(context: ScheduleExecutionContext):
+def pfht_schedule(context: ScheduleEvaluationContext):
     DIRECTORY = "//pbotdm1/pudl/pfht"
+    exectution_date = context.scheduled_execution_time.strftime("%Y%m%d")
 
-    return {
-        "resources": {
-            "adls2_resource": {
-                "config": {
-                    "azure_data_lake_gen2_conn_id": "azure_data_lake_gen2",
-                }
-            }
-        },
-        "ops": {
-            "list_dir_dynamic": {"config": {"path": DIRECTORY, "recursive": True}},
-            "upload_file": {
-                "config": {
-                    "base_dir": DIRECTORY,
-                    "container": "twilight",
-                    "remote_path": "dagster/${pipeline_name}/${parent}/${execution_date}/${name}",
-                    "substitutions": {
-                        "execution_date": context.scheduled_execution_time.strftime(
-                            "%Y%m%d"
-                        )
-                    },
+    return RunRequest(
+        run_key=exectution_date,
+        run_config={
+            "resources": {
+                "adls2_resource": {
+                    "config": {
+                        "azure_data_lake_gen2_conn_id": "azure_data_lake_gen2",
+                    }
                 }
             },
+            "ops": {
+                "list_dir_dynamic": {"config": {"path": DIRECTORY, "recursive": True}},
+                "upload_file": {
+                    "config": {
+                        "base_dir": DIRECTORY,
+                        "container": "twilight",
+                        "remote_path": "dagster/${pipeline_name}/${parent}/${execution_date}/${name}",
+                        "substitutions": {"execution_date": exectution_date},
+                    }
+                },
+            },
         },
-    }
+    )
 
 
 @repository
