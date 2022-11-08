@@ -7,5 +7,6 @@ dagster-postgres
 dagster-azure
 sqlalchemy
 sqlalchemy_utils
+pyarrow
 pycryptodome
 pyodbc
