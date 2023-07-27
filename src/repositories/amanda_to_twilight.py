@@ -57,7 +57,7 @@ def amanda_schedule(context: ScheduleEvaluationContext):
             },
             "ops": {
                 "get_table_names_dynamic": {
-                    "config": {"schema": "dbo", "include": ["PBOT_ROW_COORDINATION"]}
+                    "config": {"schema": "PBOTAdmin", "include": ["PBOT_SS_DATA"]}
                 },
                 "table_to_parquet": {
                     "config": {
