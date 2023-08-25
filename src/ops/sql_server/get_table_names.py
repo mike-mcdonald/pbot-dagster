@@ -34,13 +34,13 @@ def __get_table_names(context: OpExecutionContext) -> PyList[str]:
     if len(inclusions) > 0:
         context.log.info(f"Including tables based on '{inclusions}'...")
         for inclusion in inclusions:
-            inclusion = re.compile(inclusion)
+            inclusion = re.compile(inclusion, re.IGNORECASE)
             tables = [t for t in tables if inclusion.match(t)]
 
     if len(exclusions) > 0:
         context.log.info(f"Excluding some tables based on '{exclusions}'...")
         for exclusion in exclusions:
-            exclusion = re.compile(exclusion)
+            exclusion = re.compile(exclusion, re.IGNORECASE)
             tables = [t for t in tables if not exclusion.match(t)]
 
     context.log.info(f"Tables being processed: {tables}")
