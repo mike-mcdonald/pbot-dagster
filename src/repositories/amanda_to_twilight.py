@@ -62,7 +62,7 @@ def amanda_schedule(context: ScheduleEvaluationContext):
                 "table_to_parquet": {
                     "config": {
                         "schema": "PBOTAdmin",
-                        "path": "//pbotdm1/pudl/amanda/${execution_date}/${table}.parquet",
+                        "path": "//pbotdm2/pudl/amanda/${execution_date}/${table}.parquet",
                         "substitutions": {"execution_date": execution_date},
                     }
                 },

@@ -49,7 +49,7 @@ def tsup_schedule(context):
             "table_to_csv": {
                 "config": {
                     "schema": "TSUP",
-                    "path": "//pbotdm1/pudl/tsup/${execution_date}/${table}.csv",
+                    "path": "//pbotdm2/pudl/tsup/${execution_date}/${table}.csv",
                     "substitutions": {"execution_date": execution_date},
                 }
             },

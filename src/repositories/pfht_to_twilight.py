@@ -30,7 +30,7 @@ def pfht_to_twilight():
     execution_timezone="US/Pacific",
 )
 def pfht_schedule(context: ScheduleEvaluationContext):
-    DIRECTORY = "//pbotdm1/pudl/pfht"
+    DIRECTORY = "//pbotdm2/pudl/pfht"
     exectution_date = context.scheduled_execution_time.strftime("%Y%m%d")
 
     return RunRequest(

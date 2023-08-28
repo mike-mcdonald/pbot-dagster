@@ -17,7 +17,7 @@ from ops.fs import remove_file
 
 from resources import adls2_resource
 
-DIRECTORY = "//pbotdm1/pudl/parking/elavon"
+DIRECTORY = "//pbotdm2/pudl/parking/elavon"
 
 
 @op(config_schema={"filename": str})
