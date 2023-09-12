@@ -47,7 +47,7 @@ def __description_to_schema(description: Tuple[Tuple]):
         bytes: lambda *_: pa.binary(),
         decimal.Decimal: lambda p, s: pa.decimal128(p, s),
         date: lambda *_: pa.date64(),
-        datetime: lambda *_: pa.timestamp("ms"),
+        datetime: lambda *_: pa.timestamp("us"),
         int: lambda *_: pa.int64(),
         float: lambda *_: pa.float64(),
         str: lambda *_: pa.string(),
