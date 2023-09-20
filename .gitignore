@@ -1,4 +1,5 @@
 .certs/
+.nux/
 .telemetry/
 .venv/
 .vscode/

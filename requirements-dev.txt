@@ -4,44 +4,132 @@
 #
 #    pip-compile '.\requirements-dev.in'
 #
-black==22.8.0
+asttokens==2.4.0
+    # via stack-data
+backcall==0.2.0
+    # via ipython
+black==23.9.1
     # via -r .\requirements-dev.in
-build==0.8.0
+build==1.0.3
     # via pip-tools
-click==8.1.3
+click==8.1.7
     # via
     #   -c .\requirements.txt
     #   black
     #   pip-tools
-colorama==0.4.5
+colorama==0.4.6
     # via
     #   -c .\requirements.txt
     #   build
     #   click
-mypy-extensions==0.4.3
-    # via black
-packaging==21.3
+    #   ipython
+comm==0.1.4
+    # via ipykernel
+debugpy==1.8.0
+    # via ipykernel
+decorator==5.1.1
+    # via ipython
+exceptiongroup==1.1.3
     # via
     #   -c .\requirements.txt
-    #   build
-pathspec==0.10.1
-    # via black
-pep517==0.13.0
-    # via build
-pip-tools==6.8.0
+    #   ipython
+executing==1.2.0
+    # via stack-data
+ipykernel==6.25.2
     # via -r .\requirements-dev.in
-platformdirs==2.5.2
+ipython==8.15.0
+    # via ipykernel
+jedi==0.19.0
+    # via ipython
+jupyter-client==8.3.1
+    # via ipykernel
+jupyter-core==5.3.1
+    # via
+    #   ipykernel
+    #   jupyter-client
+matplotlib-inline==0.1.6
+    # via
+    #   ipykernel
+    #   ipython
+mypy-extensions==1.0.0
     # via black
-pyparsing==3.0.9
+nest-asyncio==1.5.7
+    # via ipykernel
+packaging==23.1
     # via
     #   -c .\requirements.txt
-    #   packaging
-tomli==2.0.1
-    # via
     #   black
     #   build
-    #   pep517
-wheel==0.37.1
+    #   ipykernel
+parso==0.8.3
+    # via jedi
+pathspec==0.11.2
+    # via black
+pickleshare==0.7.5
+    # via ipython
+pip-tools==7.3.0
+    # via -r .\requirements-dev.in
+platformdirs==3.10.0
+    # via
+    #   black
+    #   jupyter-core
+prompt-toolkit==3.0.39
+    # via ipython
+psutil==5.9.5
+    # via
+    #   -c .\requirements.txt
+    #   ipykernel
+pure-eval==0.2.2
+    # via stack-data
+pygments==2.16.1
+    # via ipython
+pyproject-hooks==1.0.0
+    # via build
+python-dateutil==2.8.2
+    # via
+    #   -c .\requirements.txt
+    #   jupyter-client
+pywin32==306
+    # via
+    #   -c .\requirements.txt
+    #   jupyter-core
+pyzmq==25.1.1
+    # via
+    #   ipykernel
+    #   jupyter-client
+six==1.16.0
+    # via
+    #   -c .\requirements.txt
+    #   asttokens
+    #   python-dateutil
+stack-data==0.6.2
+    # via ipython
+tomli==2.0.1
+    # via
+    #   -c .\requirements.txt
+    #   black
+    #   build
+    #   pip-tools
+    #   pyproject-hooks
+tornado==6.3.3
+    # via
+    #   ipykernel
+    #   jupyter-client
+traitlets==5.10.0
+    # via
+    #   comm
+    #   ipykernel
+    #   ipython
+    #   jupyter-client
+    #   jupyter-core
+    #   matplotlib-inline
+typing-extensions==4.7.1
+    # via
+    #   -c .\requirements.txt
+    #   black
+wcwidth==0.2.6
+    # via prompt-toolkit
+wheel==0.41.2
     # via pip-tools
 
 # The following packages are considered to be unsafe in a requirements file:

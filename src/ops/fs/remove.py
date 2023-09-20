@@ -15,7 +15,7 @@ def __remove(path: str):
 
 
 @op(
-    ins={"path": In(String)},
+    ins={"path": In(String, "The path to remove")},
     out=Out(String, "The path removed even if nothing was found"),
 )
 def remove_file(_, path: str):
@@ -23,10 +23,10 @@ def remove_file(_, path: str):
 
 
 @op(
-    ins={"paths": In(List[String])},
+    ins={"paths": In(List[String], "The paths to remove")},
     out=Out(List[String], "The paths removed"),
 )
-def remove_files(context: OpExecutionContext, paths: str):
+def remove_files(context: OpExecutionContext, paths: list[str]):
     removed = []
 
     for path in paths:
