@@ -68,7 +68,7 @@ class MSSqlServerResource(BaseResource):
         return [x.table_name for x in rows]
 
     def execute(self, context: OpExecutionContext, sql: str, *params):
-        context.log.info(f"🚀 Executing: {dedent(sql)} with params: {params}")
+        context.log.debug(f"🚀 Executing: {dedent(sql)} with params: {params}")
         return self.client.execute(sql, *params)
 
 

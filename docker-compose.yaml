@@ -4,12 +4,14 @@ services:
   # This service runs the postgres DB used by dagster for run storage, schedule storage,
   # and event log storage.
   postgres:
-    image: postgres:13
+    image: postgres
     container_name: postgres
     environment:
       POSTGRES_USER: "dagster"
       POSTGRES_PASSWORD: "dagster"
       POSTGRES_DB: "dagster"
+    ports:
+      - "5432:5432"
     volumes:
       - "db:/var/lib/postgresql/data"
     networks:

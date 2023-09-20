@@ -62,9 +62,11 @@ def append_columns_to_csv(context: OpExecutionContext, path: str) -> str:
     local_path, map = __bootstrap(context, path)
 
     with safe_tempfile_path() as tmp:
-        context.log.info(f"Moving file to temporary location '{tmp}'...")
+        context.log.info(f"Copying '{local_path}' to temporary location '{tmp}'...")
 
-        shutil.move(local_path, tmp)
+        shutil.copy(local_path, tmp)
+
+        context.log.info(f"Appending columns: {map}...")
 
         with open(tmp, "r") as tf:
             reader = csv.reader(tf)
@@ -91,9 +93,9 @@ def append_columns_to_parquet(context: OpExecutionContext, path: str) -> str:
     local_path, map = __bootstrap(context, path)
 
     with safe_tempfile_path() as tmp:
-        context.log.info(f"Moving file to temporary location '{tmp}'...")
+        context.log.info(f"Copying file to temporary location '{tmp}'...")
 
-        shutil.move(local_path, tmp)
+        shutil.copy(local_path, tmp)
 
         table = pq.read_table(tmp, memory_map=True)
 
