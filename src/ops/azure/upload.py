@@ -20,11 +20,10 @@ from ops.template import apply_substitutions, create_mapping
 
 
 def __template_path(local_path: Path, remote_path: str, context: OpExecutionContext):
-    substitutions = create_mapping(
-        local_path,
-        {"anchor", "drive", "name", "parent", "root", "stem", "suffix"},
-        context,
-    )
+    substitutions = dict()
+
+    for attr in {"anchor", "drive", "name", "parent", "root", "stem", "suffix"}:
+        substitutions[attr] = local_path.__getattribute__(attr)
 
     if "substitutions" in context.op_config:
         substitutions.update(context.op_config["substitutions"])
