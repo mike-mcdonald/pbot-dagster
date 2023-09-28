@@ -17,7 +17,7 @@ from dagster import (
 )
 from dagster._utils import safe_tempfile_path
 
-from ops.template import apply_substitutions, create_mapping
+from ops.template import apply_substitutions
 
 OP_CONFIG = dict(
     description="Adds constant value columns to a dataset",
@@ -41,11 +41,10 @@ OP_CONFIG = dict(
 def __bootstrap(context: OpExecutionContext, path: str):
     local_path = Path(path)
 
-    substitutions = create_mapping(
-        local_path,
-        {"anchor", "drive", "name", "parent", "root", "stem", "suffix"},
-        context,
-    )
+    substitutions = dict()
+
+    for attr in {"anchor", "drive", "name", "parent", "root", "stem", "suffix"}:
+        substitutions[attr] = local_path.__getattribute__(attr)
 
     if "substitutions" in context.op_config:
         substitutions = dict(**substitutions, **context.op_config["substitutions"])

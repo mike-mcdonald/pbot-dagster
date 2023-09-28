@@ -67,7 +67,7 @@ def elavon_sensor(context: SensorEvaluationContext):
                     "upload_file": {
                         "config": {
                             "container": "twilight",
-                            "remote_path": "dagster/${pipeline_name}/${stem}${suffix}",
+                            "remote_path": "dagster/elavon_to_twilight/${stem}${suffix}",
                         }
                     },
                 },

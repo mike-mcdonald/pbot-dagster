@@ -31,10 +31,10 @@ def pfht_to_twilight():
 )
 def pfht_schedule(context: ScheduleEvaluationContext):
     DIRECTORY = "//pbotdm2/pudl/pfht"
-    exectution_date = context.scheduled_execution_time.strftime("%Y%m%d")
+    execution_date = context.scheduled_execution_time.strftime("%Y%m%d")
 
     return RunRequest(
-        run_key=exectution_date,
+        run_key=execution_date,
         run_config={
             "resources": {
                 "adls2_resource": {
@@ -49,8 +49,8 @@ def pfht_schedule(context: ScheduleEvaluationContext):
                     "config": {
                         "base_dir": DIRECTORY,
                         "container": "twilight",
-                        "remote_path": "dagster/${pipeline_name}/${parent}/${execution_date}/${name}",
-                        "substitutions": {"execution_date": exectution_date},
+                        "remote_path": "dagster/pfht_to_twilight/${parent}/${execution_date}/${name}",
+                        "substitutions": {"execution_date": execution_date},
                     }
                 },
             },

@@ -72,7 +72,7 @@ def amanda_schedule(context: ScheduleEvaluationContext):
                 "upload_file": {
                     "config": {
                         "container": "twilight",
-                        "remote_path": "dagster/${pipeline_name}/${stem}/${execution_date}${suffix}",
+                        "remote_path": "dagster/amanda_to_twilight/${stem}/${execution_date}${suffix}",
                         "substitutions": {"execution_date": execution_date},
                     }
                 },

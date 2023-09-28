@@ -1,11 +1,11 @@
 from string import Template
-from typing import Set
+from typing import Any, Set
 
 from dagster import OpExecutionContext
 
 
 def create_mapping(
-    context: OpExecutionContext,
+    context: Any,
     attribute_names: Set[str],
 ):
     mapping = dict()

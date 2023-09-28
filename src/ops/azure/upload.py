@@ -16,7 +16,7 @@ from dagster import (
 )
 
 from resources.azure_data_lake_gen2 import AzureDataLakeGen2Resource
-from ops.template import apply_substitutions, create_mapping
+from ops.template import apply_substitutions
 
 
 def __template_path(local_path: Path, remote_path: str, context: OpExecutionContext):
