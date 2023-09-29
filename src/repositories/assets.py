@@ -154,9 +154,14 @@ def sign_library_schedule(context: ScheduleEvaluationContext):
                     "config": {
                         "path": "//pbotdm2/assets/signlib/${execution_date}.parquet",
                         "substitutions": {"execution_date": execution_date},
-                    }
+                    },
                 },
-                "truncate_table": {"config": {"schema": "PDOT", "table": "SIGNLIB"}},
+                "truncate_table": {
+                    "config": {
+                        "schema": "PDOT",
+                    },
+                    "inputs": {"table": "SIGNLIB"},
+                },
                 "file_to_table": {"config": {"schema": "PDOT"}},
             },
         },
