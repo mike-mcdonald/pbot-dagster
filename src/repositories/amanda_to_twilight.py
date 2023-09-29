@@ -64,6 +64,7 @@ def amanda_schedule(context: ScheduleEvaluationContext):
                         "schema": "PBOTAdmin",
                         "path": "//pbotdm2/pudl/amanda/${execution_date}/${table}.parquet",
                         "substitutions": {"execution_date": execution_date},
+                        "exclude": ["EXPIRYDATE"],
                     }
                 },
                 "append_columns_to_parquet": {
