@@ -152,7 +152,7 @@ def sign_library_schedule(context: ScheduleEvaluationContext):
             "ops": {
                 "signs_to_file": {
                     "config": {
-                        "path": "//pbotdm2/assets/signlib/${execution_date}.parquet",
+                        "path": "//pbotdm2/pudl/assets/signlib/${execution_date}.parquet",
                         "substitutions": {"execution_date": execution_date},
                     },
                 },
