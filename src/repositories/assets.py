@@ -1,11 +1,13 @@
 from pathlib import Path
+from textwrap import dedent
 
 import pandas as pd
 import requests
 
 from dagster import (
     Field,
-    Int,
+    In,
+    Nothing,
     OpExecutionContext,
     Out,
     Permissive,
@@ -24,7 +26,7 @@ from ops.sql_server.file_to_table import file_to_table
 from ops.sql_server.truncate_table import truncate_table
 from ops.template import apply_substitutions
 
-from resources.mssql import mssql_resource
+from resources.mssql import mssql_resource, MSSqlServerResource
 
 
 @op(
@@ -48,6 +50,7 @@ def signs_to_file(context: OpExecutionContext):
     res = session.post(
         "https://pbotapps.portland.gov/graphql/sign",
         json={"query": "{ signs { _id status mutcdCode legend type } }"},
+        verify=False,
     )
 
     signs = res.json().get("data").get("signs", [])
@@ -123,6 +126,33 @@ def signs_to_file(context: OpExecutionContext):
     return path
 
 
+@op(required_resource_keys={"sql_server"}, ins={"start": In(Nothing)})
+def refresh_signfaces(context: OpExecutionContext):
+    conn: MSSqlServerResource = context.resources.sql_server
+
+    sql = dedent(
+        """
+    update
+        PDOT.SIGNFACE
+    set
+        ImagePath = l.ImagePath
+    from
+        PDOT.SIGNFACE as f with (nolock)
+    inner join
+        PDOT.SIGNLIB as l
+    on
+        l.SignCode = f.SignCode
+    where
+        f.ImagePath is null
+    """
+    )
+
+    conn.execute(
+        context=context,
+        sql=sql,
+    )
+
+
 @job(
     resource_defs={
         "sql_server": mssql_resource,
@@ -130,7 +160,9 @@ def signs_to_file(context: OpExecutionContext):
     }
 )
 def sign_library_to_assets():
-    remove_file(file_to_table(signs_to_file(), truncate_table()))
+    path = file_to_table(signs_to_file(), truncate_table())
+    remove_file(path)
+    refresh_signfaces(start=path)
 
 
 @schedule(
