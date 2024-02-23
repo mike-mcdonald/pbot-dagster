@@ -1,12 +1,13 @@
 import json
 import os
-
-from pathlib import Path
-
+import numpy as np
 import pandas as pd
 import pyodbc
+import re
 import requests
+import textwrap
 
+from datetime import datetime
 from dotenv import load_dotenv
 
 from dagster import (
@@ -24,31 +25,34 @@ from dagster import (
 )
 
 from ops.fs import remove_file
+from pathlib import Path
 from resources.mssql import mssql_resource
 
 
 @op(
     config_schema={
+        "zendesk_api_endpoint": Field(
+            String,
+            description="""Zendesk API endpoint to fetch reports.""",
+        ),
+        "scheduled_date": Field(
+            String,
+            description="""Job scheduled date in isoformat.""",
+        ),
         "path": Field(
             String,
-            description="""Template string to generate the path.
-                Will replace properties wrapped by {} with most `pathlib.Path` properties, run_id from OpContext.""",
-        )
+            description=""" Output.json location""",
+        ),
     },
-    ins={
-        "zendesk_api_endpoint": In(String),
-    },
-    out=Out(String, "The path to the file created by this operation"),
+    out=Out(String, "The path to the output.json file created from calling the Zendesk API"),
 )
 def fetch_reports(context: OpExecutionContext):
-
     zendesk_api_endpoint = context.op_config["zendesk_api_endpoint"]
     scheduled_date = context.op_config["scheduled_date"]
-    path = context.op_config["path"]
-
-    context.log.info(f"🚀 Scheduled_date: '{scheduled_date}'")
-    # context.log.info(f"🚀 Next_url: '{next_url}'")
-    context.log.info(f"🚀 Path: '{path}'")
+   
+    context.log.info(f"🚀 {datetime.now().strftime('%Y-%m-%d %H:%M')}: Fetch reports started for scheduled_date '{scheduled_date}'")
+    context.log.info(f"🚀 Zendesk API endpoint: '{zendesk_api_endpoint}'")
+    context.log.info(f"🚀 Scheduled_date: '{scheduled_date.strftime('%Y-%m-%d %H:%M')}'")
 
     load_dotenv()
     api_key = os.getenv("API_KEY")
@@ -66,10 +70,8 @@ def fetch_reports(context: OpExecutionContext):
 
     if response.status_code == 200:
         data = response.text
-
-        path: Path = context.op_config["path"]
-        Path(path).parent.resolve().mkdir(parents=True, exist_ok=True)
-
+        path = context.op_config["path"]
+        context.log.info(f"🚀 Path: '{path}'")
         with path.open("w") as fd:
             fd.write(data)
 
@@ -81,26 +83,31 @@ def fetch_reports(context: OpExecutionContext):
 
     return path
 
+def area_searcher(search_str:str, search_list:str):
+    search_obj = re.search(search_list, search_str)
+    if search_obj :
+        return_str = search_str[search_obj.start(): search_obj.end()]
+    else:
+        return_str = "SE"
+    return return_str
 
 @op(
     config_schema={
         "schema": Field(String),
+        "zpath": Field(
+            String,
+            description=""" Dataframe parquet file location""",
+        ),
     },
     ins={
         "path": In(String),
     },
-    out={
-        "zendesk_data": Out(),
-        "has_more_data": Out(),
-        "next_url": Out(),
-        "count_reports": Out(),
-        "output_message": Out(),
-    },
+    out=Out(
+        String, 
+        description="The Zendesk dataframe parquet file",
+    ),
 )
-def read_reports(
-    context: OpExecutionContext, path: str
-) -> tuple[pd.DataFrame, bool, str, int, str]:
-
+def read_reports(context: OpExecutionContext, path: str):
     p = Path(path)
     with open(p, "r") as file:
         data = json.load(file)
@@ -109,37 +116,39 @@ def read_reports(
         17698062540823  # this indicates it is an abautos zendesk report
     )
     abautos_occupied_key_value = 14510509580823  # indicates it is the occupied field
+    area_list = [" E ", " N "," NE "," NW ", " S "," SE "," SW "," W "]
+    areapattern = "|".join(area_list)
 
-    zendesk_id_list = []
-    zendesk_value_list = []
+    column_name = ["Id"
+        , "Color"
+        , "Type"
+        , "Make"
+        , "State"
+        , "License"
+        , "Detail"
+        , "Area" 
+        , "Address"      
+        , "Lat"
+        , "Lng"
+        , "FirstName"
+        , "LastName"
+        , "Phone"
+        , "Email"
+        , "Waived"
+        , "Occupied"
+        , "Names"
+        ]
+
+    id,vehColor,vehType,vehMake,vehState,vehLicense,detail,area,address,lat,lng, \
+    firstName,lastName,phone,email,waived,occupied,names = [],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]
 
     for report_record in data["results"]:
-
+        zendeskId = str(report_record["id"])
         details = ""
-        zendeskID = " "
-        vehicleColor = " "
-        vehicleType = "UNKNOWN"
-        vehicleMake = "UNKNOWN"
-        vehicleLicense = "UNKNOWN"
-        vehicleState = "UNKNOWN"
-        vehicleDescription = ""
-        vehicleArea = ""
-        vehicleAddress = ""
-        latitude = ""
-        longitude = ""
-        contactFirstName = ""
-        contactLastName = ""
-        contactPhone = ""
-        contactEmail = ""
-        waiveConfid = 0
-        occupied = "UNKNOWN"
-
-        zendesk_id = str(report_record["id"])
-
         ## the main data we are looking is on the value property
         ## of one of many custom field id/value pairs
         custom_fields = report_record["custom_fields"]
-
+        occupied_field = [r for r in custom_fields if r["id"] == abautos_occupied_key_value ][0]["value"]
         ## filter custom fields to find the one for AbAutos Reports
         ## and return just the value pair for it as json
         abautos_report_fields = json.loads(
@@ -147,103 +156,29 @@ def read_reports(
                 "value"
             ]
         )
+        
+        id.append(zendeskId)
+        vehColor.append(abautos_report_fields["report_vehicle:color"]["value"].upper())
+        vehType.append(abautos_report_fields["report_vehicle:type"]["value"].upper())
+        vehMake.append(abautos_report_fields["report_vehicle:make"]["value"].upper())
+        vehState.append(abautos_report_fields["report_vehicle:license_plate_state"]["value"].upper())
+        vehLicense.append(abautos_report_fields["report_vehicle:license_plate_number"]["value"].upper())
+        address.append(abautos_report_fields["report_location:location_address"]["value"]
+            .replace(r"/","")
+            .replace(r"\\",""))
+        lat.append(abautos_report_fields["report_location:location_lat"]["value"])
+        lng.append(abautos_report_fields["report_location:location_lon"]["value"])
 
-        ## List of area assignments for officers
-        areaAssigned = ["E", "N", "NE", "NW", "S", "SE", "SW", "W"]
-
-        ## Get occupied field by looking for id=14510509580823 true means it is occupied
-        find_occupied = ""
-        find_occupied = [
-            r for r in custom_fields if r["id"] == abautos_occupied_key_value
-        ][0]["value"]
-        find_occupied_record = [
-            r for r in custom_fields if r["id"] == abautos_occupied_key_value
-        ][0]["id"]
-        occupied_caps = str(find_occupied).upper()
-        if occupied_caps == "TRUE":
-            occupied = "YES"
-        else:
-            if occupied_caps == "FALSE":
-                occupied = "NO"
-            else:
-                occupied = "UNKNOWN"
-
-        checkaddr = str(
-            abautos_report_fields["report_location:location_address"]["value"]
-        )
-
-        ## Replace backslash and forward slash with blanks
-        ## Note since slash is escape char , need two slashes
-        checkaddr = checkaddr.replace("\\", "").replace("/", "")
-
-        ## Need to get Area or Street Prefix
-        location = checkaddr.split()
-        i = 0
-        found = 0
-        while i < len(location) and found == 0:
-            ##Loop location to get area
-            checkarea = location[i].upper()
-            ##check if it is an area
-            for area in areaAssigned:
-                if checkarea == area:
-                    areaFound = checkarea
-
-                    found = 1
-                    # print("Found area: " + checkarea)
-                    break
-            i = i + 1
-        if found == 0:
-            ##Assigned to SE as default
-            areaFound = "SE"
-            # print("Not found area: " + areaFound + " Address: " + checkaddr)
-        vehicleArea = areaFound
-        vehicleAddress = checkaddr
-
-        latitude = abautos_report_fields["report_location:location_lat"]["value"]
-        longitude = abautos_report_fields["report_location:location_lon"]["value"]
-
-        vehicleColor = abautos_report_fields["report_vehicle:color"]["value"].upper()
-        vehicleMake = abautos_report_fields["report_vehicle:make"]["value"].upper()
-        vehicleType = abautos_report_fields["report_vehicle:type"]["value"].upper()
-
-        if "report_vehicle:license_plate_state" in abautos_report_fields:
-            vehicleState = abautos_report_fields["report_vehicle:license_plate_state"][
-                "value"
-            ].upper()
-        if "report_vehicle:license_plate_number" in abautos_report_fields:
-            vehicleLicense = abautos_report_fields[
-                "report_vehicle:license_plate_number"
-            ]["value"].upper()
-
-        if "contact_name" in abautos_report_fields:
-            names = str(abautos_report_fields["contact_name"]["value"]).split()
-
-            nameCount = len(names)
-            if nameCount >= 2:
-                contactFirstName = names[0]
-                contactLastName = names[1]
-            else:
-                contactFirstName = abautos_report_fields["contact_name"]["value"]
-                contactLastName = ""
-
-        if "contact_phone" in abautos_report_fields:
-            contactPhone = abautos_report_fields["contact_phone"]["value"]
-        if "contact_email" in abautos_report_fields:
-            contactEmail = abautos_report_fields["contact_email"]["value"]
-
-        # Need to check if exists to take care of KeyError
+        if "contact_name"  in abautos_report_fields:
+            names.append(abautos_report_fields["contact_name"]["value"])
+        if "contact_phone"  in abautos_report_fields: 
+            phone.append(abautos_report_fields["contact_phone"]["value"])
+        if "contact_email"  in abautos_report_fields: 
+            email.append(abautos_report_fields["contact_email"]["value"])
         if "confidentiality_waiver" in abautos_report_fields:
-            waived = abautos_report_fields["confidentiality_waiver"]["value"]
-            if "I do not waive confidentiality" in waived:
-                waiveConfid = 0
-            else:
-                if "I choose to waive confidentiality" in waived:
-                    waiveConfid = 1
-                else:
-                    ## default is DO NOT WAIVE
-                    waiveConfid = 0
-        else:
-            waiveConfid = 0
+            waived.append(abautos_report_fields["confidentiality_waiver"]["value"])
+        
+        occupied.append(occupied_field)
 
         # Details consist of the following fields
         # Need to check if exists to take care of KeyError
@@ -301,112 +236,57 @@ def read_reports(
                 details = details + locattr + " "
             # print("Locattr  : "+ locattr   )
 
-        # Need to truncate details string because the stored procedure fails if max string length is > 128 char
-        max_size = 128
+        #Need to truncate details string because the stored procedure fails if max string length is > 128 char
+        max_size= 128
         if len(details) <= max_size:
-            vehicleDescription = details
+            description = details
         else:
-            vehicleDescription = details[: (max_size - 1) - 3] + "..."
+            description = textwrap.wrap(details, max_size-3)[0] + "..."
+        detail.append(description)
 
-        create_case = (
-            ","
-            + "'"
-            + vehicleColor
-            + "'"
-            + ","
-            + "'"
-            + vehicleType
-            + "'"
-            + ","
-            + "'"
-            + vehicleMake
-            + "'"
-            + ","
-            + "'"
-            + vehicleLicense
-            + "'"
-            + ","
-            + "'"
-            + vehicleState
-            + "'"
-            + ","
-            + "'"
-            + vehicleDescription
-            + "'"
-            + ","
-            + "'"
-            + vehicleArea
-            + "'"
-            + ","
-            + "'"
-            + vehicleAddress
-            + "'"
-            + ","
-            + latitude
-            + ","
-            + longitude
-            + ","
-            + "'"
-            + contactFirstName
-            + "'"
-            + ","
-            + "'"
-            + contactLastName
-            + "'"
-            + ","
-            + "'"
-            + contactPhone
-            + "'"
-            + ","
-            + "'"
-            + contactEmail
-            + "'"
-            + ","
-            + str(waiveConfid)
-            + ","
-            + "'"
-            + occupied
-            + "'"
+    df = pd.DataFrame([id,vehColor,vehType,vehMake,vehState,vehLicense,detail,area,address,lat,lng,firstName,lastName,phone,email,waived,occupied,names]).T
+    df.columns=column_name
+
+    df["Area"] = df["Address"].apply(lambda x: area_searcher(search_str=x, search_list=areapattern))
+    df["FirstName"] = df["Names"].astype(str).str.split().str[0]
+    df["LastName"] = df["Names"].astype(str).str.split().str[1]
+    df["Waived"] = (
+        np.select(
+            condlist = [
+                (df["Waived"]=="I do not waive confidentiality"),
+                (df["Waived"]=="I choose to waive confidentiality"),
+                (df["Waived"]=="I waive confidentiality")
+                ],
+            choicelist = [0,1,1],
+            default = 0
+            )
         )
 
-        zendesk_id_list.append(zendesk_id)
-        zendesk_value_list.append(create_case)
+    df["Occupied"] = (
+        np.select(
+            condlist=[df["Occupied"] == True, df["Occupied"] == False],
+            choicelist=["YES", "NO"], 
+            default="UNKNOWN"))
 
-    meta_has_more = data["meta"]["has_more"].lower()
-
-    if "false" in meta_has_more:
-        has_more_data = bool(0)
-    elif "true" in meta_has_more:
-        has_more_data = bool(1)
-    else:
-        has_more_data = bool(1)
-
+    has_more = data["meta"]["has_more"]
     next_url = data["links"]["next"]
-
-    data = {"zendesk_id": zendesk_id_list, "attributes": zendesk_value_list}
-    df = pd.DataFrame(data)
     count_reports = len(df.index)
+    context.log.info(f"🚀{datetime.now().strftime('%Y-%m-%d %H:%M')}: Read {count_reports} Zendesk Abandoned Autos reports. Has more reports is {has_more} ")
 
-    return (
-        df,
-        has_more_data,
-        next_url,
-        count_reports,
-        "Read returns "
-        + count_reports
-        + " reports. Has more data is "
-        + has_more_data
-        + ".",
-    )
-
+    zpath = context.op_config["zpath"]
+    df.to_parquet(zpath, index=False)
+    return zpath
 
 @op(
     ins={
-        "zendesk_data": In(pd.DataFrame),
+        "zpath": In(String),
     },
     out={"output_message": Out(str)},
 )
-def write_reports(context: OpExecutionContext, zendesk_data: pd.DataFrame):
+def write_reports(context: OpExecutionContext, zpath: str):
+    # read path as Path
+    p = Path(zpath)
+    zendesk_data = pd.read_parquet(p)
 
     try:
         cnxn = pyodbc.connect(
@@ -420,25 +300,75 @@ def write_reports(context: OpExecutionContext, zendesk_data: pd.DataFrame):
         ##You do not set it in the pyodbc.connect statement above.
         ##It turns it off.
         cnxn.autocommit = True
-
         cursor = cnxn.cursor()
-
         for index, row in zendesk_data.iterrows():
-            print(row["zendesk_id"], row["attributes"])
             # queryCaseExists ="""Exec sp_CaseExistsByZendeskID 187978"""
-            queryCaseExists = "Exec sp_CaseExistsByZendeskID " + row["zendesk_id"]
+            queryCaseExists = "Exec sp_CaseExistsByZendeskID "+ row["Id"]
+            print(queryCaseExists)
             cursor.execute(queryCaseExists)
             for results in cursor.fetchall():
                 if results[0] == 0:
                     # print("Zendesk Abandoned Autos case does not exists: "+ str(results[0]))
                     ##Create new case
-                    # queryCreate ="""Exec sp_CreateAbCaseZendesk 187978,'UNKNOWN','4 DOOR','UNKNOWN','','OR','Private:Not sure Tax lot: R332503, Park id: 275 ','SE','MT TABOR PARK, PORTLAND  97215',45.5119281409899,-122.59159952402118,'PORTLAND','','','','joshua.gregor@portlandoregon.gov',0,'YES'"""
-                    # """Exec sp_CreateAbCaseZendesk 185742,'ORANGE','GOLF CART','CADILLAC','','','Private:Not sure Private:Theres been a camp here since they finished building the "art" installation here several years ago. ','NE',' NE 102ND AVE-HALSEY ST RAMP, PORTLAND  97220',45.53452516452696,-122.55768030881883,'','','','gregoryscottclapp@gmail.com',0,'NO'"""
-                    queryCreate = (
-                        "Exec sp_CreateAbCaseZendesk "
-                        + row["zendesk_id"]
-                        + row["attributes"]
-                    )
+                    queryCreate = ("Exec sp_CreateAbCaseZendesk " + row["Id"]
+                    + ","
+                    + "'"
+                    + row["Color"] 
+                    + "'"
+                    + ","
+                    + "'"
+                    +  row["Type"] 
+                    + "'"
+                    + ","
+                    + "'"
+                    + row["Make"]
+                    + "'"
+                    + ","
+                    + "'"
+                    + row["License"]
+                    + "'"
+                    + ","
+                    + "'"
+                    + row["State"]
+                    + "'"
+                    + ","
+                    + "'"
+                    + row["Detail"] 
+                    + "'"
+                    + ","
+                    + "'"
+                    + row["Area"]
+                    + "'"
+                    + ","
+                    + "'"
+                    + row["Address"]
+                    + "'"
+                    + ","
+                    + row["Lat"]
+                    + ","
+                    + row["Lng"]
+                    + ","
+                    + "'"
+                    + row["FirstName"]
+                    + "'"
+                    + ","
+                    + "'"
+                    + row["LastName"]
+                    + "'"
+                    + ","
+                    + "'"
+                    + row["Phone"]
+                    + "'"
+                    + ","
+                    + "'"
+                    + row["Email"]
+                    + "'"
+                    + ","
+                    +str(row["Waived"])
+                    + ","
+                    + "'"
+                    + row["Occupied"]
+                    + "'" )
                     print(queryCreate)
                     cursor.execute(queryCreate)
                     for results in cursor.fetchall():
@@ -449,7 +379,7 @@ def write_reports(context: OpExecutionContext, zendesk_data: pd.DataFrame):
                             )
                         else:
                             context.log.info(
-                                f"🚀 Write reports failed for Zendesk ID: - '{row['zendesk_id']}'."
+                                f"🚀 Write reports failed for Zendesk ID: - '{row['Id']}'."
                             )
                 else:
                     context.log.info(
@@ -471,23 +401,15 @@ def write_reports(context: OpExecutionContext, zendesk_data: pd.DataFrame):
         "io_manager": fs_io_manager,
     }
 )
-def process_zendesk_data(api_endpoint: str):
-    has_more_data = True
-
-    while has_more_data:
-        path = fetch_reports(zendesk_api_endpoint=api_endpoint)
-        read_reports(path=path)
-        count_reports = read_reports["count_reports"]
-        if count_reports > 0:
-            write_reports(zendesk_data=read_reports["zendesk_data"])
-        has_more_data = read_reports["has_more_data"]
-        api_endpoint = read_reports["next_url"]
-        remove_file(path)
-
+def process_zendesk_data():
+    path = fetch_reports()
+    write_reports(read_reports(path))
+    remove_file(path)
+    
 
 @schedule(
     job=process_zendesk_data,
-    cron_schedule="0 /5 * * *",
+    cron_schedule="*/5 * * * *",
     execution_timezone="US/Pacific",
 )
 def zendesk_api_schedule(context: ScheduleEvaluationContext):
@@ -502,11 +424,22 @@ def zendesk_api_schedule(context: ScheduleEvaluationContext):
                 },
             },
             "ops": {
-                "process_zendesk_data": {
-                    "inputs": {
-                        "api_endpoint": "https://portlandoregon.zendesk.com/api/v2/search/export?page[size]=1&filter[type]=ticket&query=group_id:18716157058327&ticket_form_id:17751920813847&created>"
-                        + "${execution_date}"
+                "fetch_reports": {
+                    "config": {
+                        "zendesk_api_endpoint": "https://portlandoregon.zendesk.com/api/v2/search/export?page[size]=1000&filter[type]=ticket&query=group_id:18716157058327&ticket_form_id:17751920813847&created>${execution_date}",
+                        "scheduled_date": "${execution_date}",
+                        "path": "//pbotdm2/abautos/output.json",
                     },
+                },
+                "read_reports": {
+                    "config": {
+                        "schema": "AbautosMVC",
+                        "zpath": "//pbotdm2/abautos/zendesk.parquet",
+                    },
+                    "inputs": { "path": "//pbotdm2/abautos/output.json" },
+                },
+                "write_reports": {
+                    "inputs": { "zpath" : "//pbotdm2/abautos/zendesk.parquet" },
                 },
             },
         },
