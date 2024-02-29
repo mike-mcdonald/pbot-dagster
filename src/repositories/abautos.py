@@ -1,14 +1,11 @@
 import json
-import os
 import numpy as np
+import os
 import pandas as pd
 import pyodbc
 import re
 import requests
 import textwrap
-
-from datetime import datetime
-from dotenv import load_dotenv
 
 from dagster import (
     Field,
@@ -21,13 +18,16 @@ from dagster import (
     fs_io_manager,
     job,
     op,
+    repository,
     schedule,
 )
 
+from datetime import datetime
+from datetime import timedelta
+from dotenv import load_dotenv
 from ops.fs import remove_file
 from pathlib import Path
-from resources.mssql import mssql_resource
-
+from resources.mssql import MSSqlServerResource, mssql_resource
 
 @op(
     config_schema={
@@ -52,7 +52,6 @@ def fetch_reports(context: OpExecutionContext):
    
     context.log.info(f"🚀 {datetime.now().strftime('%Y-%m-%d %H:%M')}: Fetch reports started for scheduled_date '{scheduled_date}'")
     context.log.info(f"🚀 Zendesk API endpoint: '{zendesk_api_endpoint}'")
-    context.log.info(f"🚀 Scheduled_date: '{scheduled_date.strftime('%Y-%m-%d %H:%M')}'")
 
     load_dotenv()
     api_key = os.getenv("API_KEY")
@@ -68,19 +67,15 @@ def fetch_reports(context: OpExecutionContext):
         verify=False,
     )
 
-    if response.status_code == 200:
-        data = response.text
-        path = context.op_config["path"]
-        context.log.info(f"🚀 Path: '{path}'")
-        with path.open("w") as fd:
-            fd.write(data)
-
-        context.log.info(f"🚀 Fetch reports success.")
-    else:
-        context.log.info(
-            f"🚀 Fetch reports error '{response.status_code}' - '{response.text}'..."
-        )
-
+    if response.status_code != 200:
+         raise Exception(  f"🚀 Fetch reports error '{response.status_code}' - '{response.text}'...") 
+    
+    data = response.text
+    path = context.op_config["path"]
+    Path(path).parent.resolve().mkdir(parents=True, exist_ok=True)
+    with open(path,"w") as fd:
+        fd.write(data)
+    context.log.info(f"🚀 Fetch reports success. File written {path}")   
     return path
 
 def area_searcher(search_str:str, search_list:str):
@@ -93,7 +88,6 @@ def area_searcher(search_str:str, search_list:str):
 
 @op(
     config_schema={
-        "schema": Field(String),
         "zpath": Field(
             String,
             description=""" Dataframe parquet file location""",
@@ -187,7 +181,6 @@ def read_reports(context: OpExecutionContext, path: str):
             camp = str(abautos_report_fields["report_is_camp"]["value"]).strip()
             if len(camp) > 0:
                 details = details + "Camp:" + camp + " "
-            # print("Camp: "+ camp)
 
         if "report_vehicle_inoperable" in abautos_report_fields:
             inoperables = (
@@ -198,7 +191,6 @@ def read_reports(context: OpExecutionContext, path: str):
             )
             if len(inoperables) > 0:
                 details = details + inoperables + " "
-            # print("Inoperables: "+ inoperables)
 
         if "report_location_is_private" in abautos_report_fields:
             isprivate = abautos_report_fields["report_location_is_private"][
@@ -206,7 +198,6 @@ def read_reports(context: OpExecutionContext, path: str):
             ].strip()
             if len(isprivate) > 0:
                 details = details + "Private:" + isprivate + " "
-            # print("Isprivate : "+ isprivate )
 
         if "report_location:location_details" in abautos_report_fields:
             locdetails = (
@@ -218,7 +209,6 @@ def read_reports(context: OpExecutionContext, path: str):
             )
             if len(locdetails) > 0:
                 details = details + "Private:" + locdetails + " "
-            # print("Locdetails : "+ locdetails )
 
         if "report_location:location_attributes" in abautos_report_fields:
             locattr = (
@@ -234,7 +224,6 @@ def read_reports(context: OpExecutionContext, path: str):
             )
             if len(locattr) > 0:
                 details = details + locattr + " "
-            # print("Locattr  : "+ locattr   )
 
         #Need to truncate details string because the stored procedure fails if max string length is > 128 char
         max_size= 128
@@ -257,8 +246,8 @@ def read_reports(context: OpExecutionContext, path: str):
                 (df["Waived"]=="I choose to waive confidentiality"),
                 (df["Waived"]=="I waive confidentiality")
                 ],
-            choicelist = [0,1,1],
-            default = 0
+            choicelist = ["0","1","1"],
+            default ="0"
             )
         )
 
@@ -268,132 +257,48 @@ def read_reports(context: OpExecutionContext, path: str):
             choicelist=["YES", "NO"], 
             default="UNKNOWN"))
 
+    df = df.fillna("")
+    df = df.drop("Names", axis=1)
     has_more = data["meta"]["has_more"]
     next_url = data["links"]["next"]
     count_reports = len(df.index)
     context.log.info(f"🚀{datetime.now().strftime('%Y-%m-%d %H:%M')}: Read {count_reports} Zendesk Abandoned Autos reports. Has more reports is {has_more} ")
 
     zpath = context.op_config["zpath"]
+    Path(zpath).parent.resolve().mkdir(parents=True, exist_ok=True)
     df.to_parquet(zpath, index=False)
     return zpath
 
 @op(
+    required_resource_keys={"sql_server"},
     ins={
         "zpath": In(String),
     },
     out={"output_message": Out(str)},
 )
 def write_reports(context: OpExecutionContext, zpath: str):
-    # read path as Path
     p = Path(zpath)
-    zendesk_data = pd.read_parquet(p)
+    df = pd.read_parquet(p)
 
-    try:
-        cnxn = pyodbc.connect(
-            "Driver={SQL Server Native Client 11.0};"
-            "Server=PBOTSQLDEV2;"
-            "Database=AbAutosMVC;"
-            "Trusted_Connection=yes;"
-        )
-        ##IMPORTANT: In python, autocommit is off by default,
-        ##so you have to set it to True like below.
-        ##You do not set it in the pyodbc.connect statement above.
-        ##It turns it off.
-        cnxn.autocommit = True
-        cursor = cnxn.cursor()
-        for index, row in zendesk_data.iterrows():
-            # queryCaseExists ="""Exec sp_CaseExistsByZendeskID 187978"""
-            queryCaseExists = "Exec sp_CaseExistsByZendeskID "+ row["Id"]
-            print(queryCaseExists)
-            cursor.execute(queryCaseExists)
-            for results in cursor.fetchall():
-                if results[0] == 0:
-                    # print("Zendesk Abandoned Autos case does not exists: "+ str(results[0]))
-                    ##Create new case
-                    queryCreate = ("Exec sp_CreateAbCaseZendesk " + row["Id"]
-                    + ","
-                    + "'"
-                    + row["Color"] 
-                    + "'"
-                    + ","
-                    + "'"
-                    +  row["Type"] 
-                    + "'"
-                    + ","
-                    + "'"
-                    + row["Make"]
-                    + "'"
-                    + ","
-                    + "'"
-                    + row["License"]
-                    + "'"
-                    + ","
-                    + "'"
-                    + row["State"]
-                    + "'"
-                    + ","
-                    + "'"
-                    + row["Detail"] 
-                    + "'"
-                    + ","
-                    + "'"
-                    + row["Area"]
-                    + "'"
-                    + ","
-                    + "'"
-                    + row["Address"]
-                    + "'"
-                    + ","
-                    + row["Lat"]
-                    + ","
-                    + row["Lng"]
-                    + ","
-                    + "'"
-                    + row["FirstName"]
-                    + "'"
-                    + ","
-                    + "'"
-                    + row["LastName"]
-                    + "'"
-                    + ","
-                    + "'"
-                    + row["Phone"]
-                    + "'"
-                    + ","
-                    + "'"
-                    + row["Email"]
-                    + "'"
-                    + ","
-                    +str(row["Waived"])
-                    + ","
-                    + "'"
-                    + row["Occupied"]
-                    + "'" )
-                    print(queryCreate)
-                    cursor.execute(queryCreate)
-                    for results in cursor.fetchall():
-                        print(results)
-                        if "Success" in results[1]:
-                            context.log.info(
+    conn: MSSqlServerResource = context.resources.sql_server
+    cursor =  conn.client.cursor()
+    for i in range(0, len(df)):
+        queryCreate = ("Exec sp_CreateAbCaseZ ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? ")
+        cursor.execute(queryCreate, df.iloc[i].tolist())
+        for results in cursor.fetchall():
+            match results[1]:
+                case "Success":
+                    context.log.info(
                                 f"🚀 Write reports successfully with Abandoned Autos abcaseid: - '{str(results[0])}'."
                             )
-                        else:
-                            context.log.info(
-                                f"🚀 Write reports failed for Zendesk ID: - '{row['Id']}'."
-                            )
-                else:
-                    context.log.info(
-                        f"🚀 Zendesk Abandoned Autos case already exists - abcaseid: - '{str(results[0])}'."
+                case "Duplicate":
+                        context.log.info(
+                    f"🚀 Write reports duplicate Zendesk ID {df.iloc[i]['Id']} . Abandoned Autos abcaseid: - {str(results[0])} already exist."
                     )
-
-    except pyodbc.Error as ex:
-        sqlstate = ex.args[1]
-        sqlstate = sqlstate.split(".")
-        print(sqlstate[-3])
-        context.log.info(f"🚀 Write reports SQL error '{sqlstate[-3]}'.")
-    finally:
-        cnxn.close()
-
+                case _:
+                    context.log.info(
+                    f"🚀 Write reports failed for Zendesk ID {df.iloc[i]['Id']}."
+                    )
 
 @job(
     resource_defs={
@@ -413,7 +318,12 @@ def process_zendesk_data():
     execution_timezone="US/Pacific",
 )
 def zendesk_api_schedule(context: ScheduleEvaluationContext):
-    execution_date = context.scheduled_execution_time.isoformat()
+    start_date = context.scheduled_execution_time
+    end_date =   start_date + timedelta(days = 90)
+    execution_date = start_date.isoformat()
+    create_end_date = end_date.isoformat()
+    path = "//pbotdm2/abautos/"+  start_date.strftime("%Y%m%d") + "/"+ start_date.strftime("%H%M%S") +"output.json"
+    zpath = "//pbotdm2/abautos/"+  start_date.strftime("%Y%m%d") + "/"+ start_date.strftime("%H%M%S") +"zendesk.parquet"
 
     return RunRequest(
         run_key=execution_date,
@@ -426,21 +336,24 @@ def zendesk_api_schedule(context: ScheduleEvaluationContext):
             "ops": {
                 "fetch_reports": {
                     "config": {
-                        "zendesk_api_endpoint": "https://portlandoregon.zendesk.com/api/v2/search/export?page[size]=1000&filter[type]=ticket&query=group_id:18716157058327&ticket_form_id:17751920813847&created>${execution_date}",
+                        "zendesk_api_endpoint": "https://portlandoregon.zendesk.com/api/v2/search/export?page[size]=1000&filter[type]=ticket&query=group_id:18716157058327 ticket_form_id:17751920813847 created>${execution_date} created<=${create_end_date}",
                         "scheduled_date": "${execution_date}",
-                        "path": "//pbotdm2/abautos/output.json",
+                        "path": "${path}",
                     },
                 },
                 "read_reports": {
                     "config": {
-                        "schema": "AbautosMVC",
-                        "zpath": "//pbotdm2/abautos/zendesk.parquet",
+                        "zpath": "${zpath}",
                     },
-                    "inputs": { "path": "//pbotdm2/abautos/output.json" },
+                    "inputs": { "path": "${path}" },
                 },
                 "write_reports": {
-                    "inputs": { "zpath" : "//pbotdm2/abautos/zendesk.parquet" },
+                    "inputs": { "zpath": "${zpath}" },
                 },
             },
         },
     )
+
+@repository
+def abautos_repository():
+    return [process_zendesk_data, zendesk_api_schedule]
