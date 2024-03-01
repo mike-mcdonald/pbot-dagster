@@ -27,7 +27,6 @@ from datetime import timedelta
 from dotenv import load_dotenv
 from ops.fs import remove_file
 from pathlib import Path
-from resources.mssql import MSSqlServerResource, mssql_resource
 
 @op(
     config_schema={
@@ -270,7 +269,6 @@ def read_reports(context: OpExecutionContext, path: str):
     return zpath
 
 @op(
-    required_resource_keys={"sql_server"},
     ins={
         "zpath": In(String),
     },
@@ -279,30 +277,38 @@ def read_reports(context: OpExecutionContext, path: str):
 def write_reports(context: OpExecutionContext, zpath: str):
     p = Path(zpath)
     df = pd.read_parquet(p)
-
-    conn: MSSqlServerResource = context.resources.sql_server
-    cursor =  conn.client.cursor()
-    for i in range(0, len(df)):
+    count_created = 0
+    conn = pyodbc.connect("Driver={SQL Server Native Client 11.0};"
+                    "Server=PBOTSQLDEV2;"
+                    "Database=AbAutosMVC;"
+                    "Trusted_Connection=yes;"
+                    )
+    ##IMPORTANT: In python, autocommit is off by default,
+    ##so you have to set it to True like below. 
+    ##You do not set it in the pyodbc.connect statement above.
+    ##It turns it off.
+    conn.autocommit =True
+    cursor = conn.cursor()
+    for row in df.itertuples(index=False,name=None):
         queryCreate = ("Exec sp_CreateAbCaseZ ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? ")
-        cursor.execute(queryCreate, df.iloc[i].tolist())
-        for results in cursor.fetchall():
-            match results[1]:
-                case "Success":
+        cursor.execute(queryCreate,row)
+        results = cursor.fetchone()
+        if results is None:
+            raise Exception 
+        match results[1]:
+            case "Success":
+                context.log.info(
+                f"🚀 Write reports successfully for Zendesk ID - {row[0]} with caseid - {str(results[0])}."
+                )
+                count_created +=1
+            case "Duplicate":
                     context.log.info(
-                                f"🚀 Write reports successfully with Abandoned Autos abcaseid: - '{str(results[0])}'."
-                            )
-                case "Duplicate":
-                        context.log.info(
-                    f"🚀 Write reports duplicate Zendesk ID {df.iloc[i]['Id']} . Abandoned Autos abcaseid: - {str(results[0])} already exist."
-                    )
-                case _:
-                    context.log.info(
-                    f"🚀 Write reports failed for Zendesk ID {df.iloc[i]['Id']}."
-                    )
+                f"🚀 Write reports duplicate Zendesk ID - {row[0]}. Caseid - {str(results[0])} already exist."
+                )
+    return f"🚀 {datetime.now().strftime('%Y-%m-%d %H:%M')} Write reports: {count_created} cases created in Abandoned Autos database."
 
 @job(
     resource_defs={
-        "sql_server": mssql_resource,
         "io_manager": fs_io_manager,
     }
 )
@@ -311,7 +317,6 @@ def process_zendesk_data():
     write_reports(read_reports(path))
     remove_file(path)
     
-
 @schedule(
     job=process_zendesk_data,
     cron_schedule="*/5 * * * *",
@@ -319,7 +324,7 @@ def process_zendesk_data():
 )
 def zendesk_api_schedule(context: ScheduleEvaluationContext):
     start_date = context.scheduled_execution_time
-    end_date =   start_date + timedelta(days = 90)
+    end_date =   start_date + timedelta(minutes = 5)
     execution_date = start_date.isoformat()
     create_end_date = end_date.isoformat()
     path = "//pbotdm2/abautos/"+  start_date.strftime("%Y%m%d") + "/"+ start_date.strftime("%H%M%S") +"output.json"
@@ -328,27 +333,18 @@ def zendesk_api_schedule(context: ScheduleEvaluationContext):
     return RunRequest(
         run_key=execution_date,
         run_config={
-            "resources": {
-                "sql_server": {
-                    "config": {"mssql_server_conn_id": "mssql_server_assets"}
-                },
-            },
             "ops": {
                 "fetch_reports": {
                     "config": {
-                        "zendesk_api_endpoint": "https://portlandoregon.zendesk.com/api/v2/search/export?page[size]=1000&filter[type]=ticket&query=group_id:18716157058327 ticket_form_id:17751920813847 created>${execution_date} created<=${create_end_date}",
-                        "scheduled_date": "${execution_date}",
-                        "path": "${path}",
+                        "zendesk_api_endpoint": f"https://portlandoregon.zendesk.com/api/v2/search/export?page[size]=1000&filter[type]=ticket&query=group_id:18716157058327 ticket_form_id:17751920813847 created>{execution_date} created<={create_end_date}",
+                        "scheduled_date": execution_date,
+                        "path": path,
                     },
                 },
                 "read_reports": {
                     "config": {
-                        "zpath": "${zpath}",
+                        "zpath": zpath,
                     },
-                    "inputs": { "path": "${path}" },
-                },
-                "write_reports": {
-                    "inputs": { "zpath": "${zpath}" },
                 },
             },
         },
