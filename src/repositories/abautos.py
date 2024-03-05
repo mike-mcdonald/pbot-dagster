@@ -272,7 +272,10 @@ def read_reports(context: OpExecutionContext, path: str):
     ins={
         "zpath": In(String),
     },
-    out={"output_message": Out(str)},
+    out=Out(
+        String, 
+        description="The Zendesk dataframe parquet file to be removed",
+    ),
 )
 def write_reports(context: OpExecutionContext, zpath: str):
     p = Path(zpath)
@@ -305,7 +308,10 @@ def write_reports(context: OpExecutionContext, zpath: str):
                     context.log.info(
                 f"🚀 Write reports duplicate Zendesk ID - {row[0]}. Caseid - {str(results[0])} already exist."
                 )
-    return f"🚀 {datetime.now().strftime('%Y-%m-%d %H:%M')} Write reports: {count_created} cases created in Abandoned Autos database."
+    context.log.info(
+        f"🚀 {datetime.now().strftime('%Y-%m-%d %H:%M')} Write reports: {count_created} cases created in Abandoned Autos database."
+        )
+    return zpath
 
 @job(
     resource_defs={
@@ -314,9 +320,9 @@ def write_reports(context: OpExecutionContext, zpath: str):
 )
 def process_zendesk_data():
     path = fetch_reports()
-    write_reports(read_reports(path))
+    remove_file(write_reports(read_reports(path)))
     remove_file(path)
-    
+  
 @schedule(
     job=process_zendesk_data,
     cron_schedule="*/5 * * * *",
