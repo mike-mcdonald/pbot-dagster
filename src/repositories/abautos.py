@@ -28,36 +28,52 @@ from dotenv import load_dotenv
 from ops.fs import remove_file
 from pathlib import Path
 
+def get_connection_str() -> str:
+    load_dotenv()
+    try:
+        return (
+            f"DRIVER={os.getenv('DB_DRIVER')};"
+            f"SERVER={os.getenv('DB_SERVER')};"
+            f"DATABASE={os.getenv('DB_NAME')};"
+            f"Trusted_Connection=yes;"
+        )
+    except KeyError as key_error:
+        raise "Missing connection parameters from .env file." from key_error
+
+def get_data_path() -> str:
+    load_dotenv()
+    try:
+        return (os.getenv('DATA_PATH'))
+    except KeyError as key_error:
+        raise "Missing DATA_PATH key from .env file." from key_error
+    
 @op(
     config_schema={
-        "zendesk_api_endpoint": Field(
-            String,
-            description="""Zendesk API endpoint to fetch reports.""",
-        ),
         "scheduled_date": Field(
             String,
-            description="""Job scheduled date in isoformat.""",
+            description="Job scheduled date in isoformat.",
         ),
         "path": Field(
             String,
-            description=""" Output.json location""",
+            description="Output.json location",
         ),
     },
     out=Out(String, "The path to the output.json file created from calling the Zendesk API"),
 )
 def fetch_reports(context: OpExecutionContext):
-    zendesk_api_endpoint = context.op_config["zendesk_api_endpoint"]
     scheduled_date = context.op_config["scheduled_date"]
-   
     context.log.info(f"🚀 {datetime.now().strftime('%Y-%m-%d %H:%M')}: Fetch reports started for scheduled_date '{scheduled_date}'")
-    context.log.info(f"🚀 Zendesk API endpoint: '{zendesk_api_endpoint}'")
-
+    
     load_dotenv()
     api_key = os.getenv("API_KEY")
-
-    # abautos_api_url = "https://portlandoregon.zendesk.com/api/v2/search/export?page[size]=1&filter[type]=ticket&query=group_id:18716157058327&ticket_form_id:17751920813847&created>"+scheduled_date
-    abautos_api_url = zendesk_api_endpoint
-    context.log.info(f"🚀 Fetch reports using url: '{abautos_api_url}'")
+    endpoint = os.getenv("ZENDESK_API")
+    minute_interval = os.getenv("MINUTE_INTERVAL")
+    
+    start_date = datetime.fromisoformat(scheduled_date)
+    end_date =   (start_date + timedelta(minutes = int(minute_interval))).isoformat()
+   
+    abautos_api_url = f"{endpoint} created>{scheduled_date} created<={end_date}"
+    context.log.info(f"🚀 Fetch reports using Zendesk API endpoint: '{abautos_api_url}'")
 
     session = requests.Session()
     response = session.get(
@@ -67,7 +83,7 @@ def fetch_reports(context: OpExecutionContext):
     )
 
     if response.status_code != 200:
-         raise Exception(  f"🚀 Fetch reports error '{response.status_code}' - '{response.text}'...") 
+         raise Exception(f"🚀 Fetch reports error '{response.status_code}' - '{response.text}'...") 
     
     data = response.text
     path = context.op_config["path"]
@@ -79,8 +95,8 @@ def fetch_reports(context: OpExecutionContext):
 
 def area_searcher(search_str:str, search_list:str):
     search_obj = re.search(search_list, search_str)
-    if search_obj :
-        return_str = search_str[search_obj.start(): search_obj.end()]
+    if search_obj:
+        return_str = search_str[search_obj.start(): search_obj.end()].strip()
     else:
         return_str = "SE"
     return return_str
@@ -89,7 +105,7 @@ def area_searcher(search_str:str, search_list:str):
     config_schema={
         "zpath": Field(
             String,
-            description=""" Dataframe parquet file location""",
+            description="The parquet file location",
         ),
     },
     ins={
@@ -97,7 +113,7 @@ def area_searcher(search_str:str, search_list:str):
     },
     out=Out(
         String, 
-        description="The Zendesk dataframe parquet file",
+        description="The parquet file for input to write_reports" ,
     ),
 )
 def read_reports(context: OpExecutionContext, path: str):
@@ -109,6 +125,8 @@ def read_reports(context: OpExecutionContext, path: str):
         17698062540823  # this indicates it is an abautos zendesk report
     )
     abautos_occupied_key_value = 14510509580823  # indicates it is the occupied field
+    # To find the area, this list's values has leading and trailing blanks so that 
+    # it finds the individual area and not as part of a word. So, do not remove the blanks.
     area_list = [" E ", " N "," NE "," NW ", " S "," SE "," SW "," W "]
     areapattern = "|".join(area_list)
 
@@ -207,7 +225,7 @@ def read_reports(context: OpExecutionContext, path: str):
                 .replace("'", "")
             )
             if len(locdetails) > 0:
-                details = details + "Private:" + locdetails + " "
+                details = details + locdetails + " "
 
         if "report_location:location_attributes" in abautos_report_fields:
             locattr = (
@@ -274,18 +292,18 @@ def read_reports(context: OpExecutionContext, path: str):
     },
     out=Out(
         String, 
-        description="The Zendesk dataframe parquet file to be removed",
+        description="The Zendesk dataframe parquet file to remove",
     ),
-)
+)   
 def write_reports(context: OpExecutionContext, zpath: str):
     p = Path(zpath)
     df = pd.read_parquet(p)
     count_created = 0
-    conn = pyodbc.connect("Driver={SQL Server Native Client 11.0};"
-                    "Server=PBOTSQLDEV2;"
-                    "Database=AbAutosMVC;"
-                    "Trusted_Connection=yes;"
-                    )
+    connection_str = get_connection_str()
+    context.log.info(
+        f"🚀 Abautos Connection string is - {connection_str}"
+    )
+    conn = pyodbc.connect(connection_str)
     ##IMPORTANT: In python, autocommit is off by default,
     ##so you have to set it to True like below. 
     ##You do not set it in the pyodbc.connect statement above.
@@ -329,12 +347,13 @@ def process_zendesk_data():
     execution_timezone="US/Pacific",
 )
 def zendesk_api_schedule(context: ScheduleEvaluationContext):
-    start_date = context.scheduled_execution_time
-    end_date =   start_date + timedelta(minutes = 5)
-    execution_date = start_date.isoformat()
-    create_end_date = end_date.isoformat()
-    path = "//pbotdm2/abautos/"+  start_date.strftime("%Y%m%d") + "/"+ start_date.strftime("%H%M%S") +"output.json"
-    zpath = "//pbotdm2/abautos/"+  start_date.strftime("%Y%m%d") + "/"+ start_date.strftime("%H%M%S") +"zendesk.parquet"
+    execution_date = context.scheduled_execution_time
+    
+    data_path = get_data_path()
+    path = data_path + execution_date.strftime("%Y%m%d") + "/"+ execution_date.strftime("%H%M%S") +"output.json"
+    zpath = data_path + execution_date.strftime("%Y%m%d") + "/"+ execution_date.strftime("%H%M%S") +"zendesk.parquet"
+    
+    execution_date = execution_date.isoformat()
 
     return RunRequest(
         run_key=execution_date,
@@ -342,7 +361,6 @@ def zendesk_api_schedule(context: ScheduleEvaluationContext):
             "ops": {
                 "fetch_reports": {
                     "config": {
-                        "zendesk_api_endpoint": f"https://portlandoregon.zendesk.com/api/v2/search/export?page[size]=1000&filter[type]=ticket&query=group_id:18716157058327 ticket_form_id:17751920813847 created>{execution_date} created<={create_end_date}",
                         "scheduled_date": execution_date,
                         "path": path,
                     },
