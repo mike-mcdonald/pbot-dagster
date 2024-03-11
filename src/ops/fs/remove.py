@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from dagster import Bool, Field, List, In, OpExecutionContext, Out, String, op
+from dagster import Bool, Field, List, In, Nothing, OpExecutionContext, Out, String, op
 
 
 def __remove(path: str):
@@ -20,6 +20,17 @@ def __remove(path: str):
 )
 def remove_file(_, path: str):
     return __remove(path)
+
+
+@op(
+    config_schema={"path": Field(String, "The path to remove")},
+    ins={"nonce": In(Nothing, "Dummy input to allow scheduling")},
+    out=Out(String, "The path removed even if nothing was found"),
+)
+def remove_file_config(
+    context: OpExecutionContext,
+):
+    return __remove(context.op_config["path"])
 
 
 @op(
