@@ -1,4 +1,5 @@
 from pathlib import Path
+
 from dagster import Bool, Field, List, In, OpExecutionContext, Out, String, op
 
 
@@ -49,6 +50,7 @@ def remove_files(context: OpExecutionContext, paths: list[str]):
 )
 def remove_dir(context: OpExecutionContext, path: str):
     import shutil
+
     path = Path(path).resolve()
 
     if path.is_file():
