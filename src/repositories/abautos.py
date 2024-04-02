@@ -26,7 +26,7 @@ from dagster import (
     schedule,
 )
 
-from datetime import datetime,  timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from ops.fs import remove_dir
@@ -80,8 +80,6 @@ from resources.mssql import MSSqlServerResource, mssql_resource
     },
 )
 def fetch_reports(context: OpExecutionContext):
-    import urllib3
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     api_key = context.op_config["zendesk_key"]
     interval = context.op_config["interval"]
     scheduled_date = context.op_config["scheduled_date"]
@@ -161,7 +159,7 @@ def area_searcher(search_str: str, search_list: str):
     ins={
         "path": In(String),
     },
-   out={
+    out={
         "stop": Out(
             String,
             "The parent dir to remove when there is no cases to process",
@@ -387,8 +385,8 @@ def read_reports(context: OpExecutionContext, path: str):
     context.log.info(
         f"🚀{datetime.now().strftime('%Y-%m-%d %H:%M')}: Read {count_reports} Zendesk Abandoned Autos reports."
     )
- 
-    if len(df) == 0: 
+
+    if len(df) == 0:
         yield Output(context.op_config["parent_dir"], "stop")
     else:
         zpath = context.op_config["zpath"]
@@ -424,10 +422,7 @@ def read_reports(context: OpExecutionContext, path: str):
 )
 def write_reports(context: OpExecutionContext, zpath: str):
     df = pd.read_parquet(zpath)
-    ( 
-        caseId, 
-        caseNo 
-    ) = ( [], [] )
+    (caseId, caseNo) = ([], [])
 
     count_created = 0
 
@@ -454,32 +449,29 @@ def write_reports(context: OpExecutionContext, zpath: str):
                 )
                 caseId.append("Duplicate")
                 caseNo.append("0")
-            case _  :
+            case _:
                 caseId.append("CatchAll")
                 caseNo.append("0")
-        cursor.close()        
+        cursor.close()
     context.log.info(
         f"🚀 {datetime.now().strftime('%Y-%m-%d %H:%M')} Write reports: {count_created} cases created in Abandoned Autos database."
     )
-    context.log.info(
-        f"🚀 Before: {df.to_string()} "
-    )
-    df['AbCaseId'],df['CaseNo'] = [ caseId, caseNo ] 
-     
-    context.log.info(
-        f"🚀 After: {df.to_string()} "
-    )
+    context.log.info(f"🚀 Before: {df.to_string()} ")
+    df["AbCaseId"], df["CaseNo"] = [caseId, caseNo]
+
+    context.log.info(f"🚀 After: {df.to_string()} ")
     # Remove records which are 'Duplicate' or 'Catchall'
-    mask = df['AbCaseId'].isin(['Duplicate', 'CatchAll'])
+    mask = df["AbCaseId"].isin(["Duplicate", "CatchAll"])
     df = df[~mask]
     if len(df) == 0:
         yield Output(context.op_config["parent_dir"], "stop")
     else:
         # Keep only columns Id, AbCaseId, CaseNo
-        cols_to_keep = ['Id', 'AbCaseId', 'CaseNo']
-        df.drop(columns=df.columns.difference(cols_to_keep),inplace=True)
+        cols_to_keep = ["Id", "AbCaseId", "CaseNo"]
+        df.drop(columns=df.columns.difference(cols_to_keep), inplace=True)
         df.to_parquet(zpath, index=False)
         yield Output(zpath, "proceed")
+
 
 @op(
     config_schema={
@@ -491,7 +483,7 @@ def write_reports(context: OpExecutionContext, zpath: str):
     ins={
         "zpath": In(String),
     },
-   out={
+    out={
         "stop": Out(
             String,
             "The parent dir to remove because there are no photos",
@@ -506,24 +498,20 @@ def write_reports(context: OpExecutionContext, zpath: str):
 )
 def get_photo_urls(context: OpExecutionContext, zpath: str):
     import truststore
+
     truststore.inject_into_ssl()
 
     df = pd.read_parquet(zpath)
-    context.log.info( f"🚀 {df.to_string()}") 
-    (
-        id,
-        abCaseId,
-        photoUrl,
-        photoFileName
-    ) = ( [], [], [], [])
-    
+    context.log.info(f"🚀 {df.to_string()}")
+    (id, abCaseId, photoUrl, photoFileName) = ([], [], [], [])
+
     headers = {
-	    "Authorization": f"Bearer {os.getenv('zendesk_key')}",
-	    "Content-Type": "application/json",
+        "Authorization": f"Bearer {os.getenv('zendesk_key')}",
+        "Content-Type": "application/json",
     }
 
-    for row in df.itertuples(index=True, name='Pandas'):
-        url = f"{os.getenv('zendesk_url')}/api/v2/tickets/{row.Id}/comments" 
+    for row in df.itertuples(index=True, name="Pandas"):
+        url = f"{os.getenv('zendesk_url')}/api/v2/tickets/{row.Id}/comments"
         response = requests.get(
             url,
             headers=headers,
@@ -545,12 +533,14 @@ def get_photo_urls(context: OpExecutionContext, zpath: str):
                     photoFileName.append(f"{row.CaseNo}-{count}.jpeg")
                     id.append(row.Id)
                     abCaseId.append(row.AbCaseId)
-                    context.log.info(f"🚀 {datetime.now().strftime('%Y-%m-%d %H:%M')} Photo url: {attachment['content_url']} Photo filename: {row.CaseNo}-{count}.jpeg")
-                    count += 1 
-        context.log.info( 
+                    context.log.info(
+                        f"🚀 {datetime.now().strftime('%Y-%m-%d %H:%M')} Photo url: {attachment['content_url']} Photo filename: {row.CaseNo}-{count}.jpeg"
+                    )
+                    count += 1
+        context.log.info(
             f"🚀 {datetime.now().strftime('%Y-%m-%d %H:%M')} {count-1} photo for ZendeskID {row.Id} and Abcaseid {row.AbCaseId}."
         )
-    
+
     photoDf = pd.DataFrame(
         [
             id,
@@ -559,19 +549,15 @@ def get_photo_urls(context: OpExecutionContext, zpath: str):
             photoFileName,
         ]
     ).T
-    photoDf.columns =  [
-        "Id",
-        "AbCaseId",
-        "PhotoUrl",
-        "PhotoFileName"
-    ]
-    
-    photoDf.to_parquet(zpath,index=False)
-    context.log.info( f"🚀 {photoDf.to_string()}") 
+    photoDf.columns = ["Id", "AbCaseId", "PhotoUrl", "PhotoFileName"]
+
+    photoDf.to_parquet(zpath, index=False)
+    context.log.info(f"🚀 {photoDf.to_string()}")
     if len(photoDf) == 0:
         yield Output(context.op_config["parent_dir"], "stop")
     else:
         yield Output(zpath, "proceed")
+
 
 @op(
     config_schema={
@@ -592,15 +578,21 @@ def get_photo_urls(context: OpExecutionContext, zpath: str):
 def download_photos(context: OpExecutionContext, zpath: str):
     import shutil
     import truststore
-    truststore.inject_into_ssl() 
+
+    truststore.inject_into_ssl()
     df = pd.read_parquet(zpath)
-    context.log.info(f"🚀 Download photo dataframe: {df.to_string()}") 
-    for row in df.itertuples(index=False,name='Panda'):
+    context.log.info(f"🚀 Download photo dataframe: {df.to_string()}")
+    for row in df.itertuples(index=False, name="Panda"):
         with requests.get(row.PhotoUrl, stream=True) as r:
-            with open(f"{context.op_config['parent_dir']}/{row.PhotoFileName}", 'wb') as f:
+            with open(
+                f"{context.op_config['parent_dir']}/{row.PhotoFileName}", "wb"
+            ) as f:
                 shutil.copyfileobj(r.raw, f)
-                context.log.info(f"🚀 Download photo: {context.op_config['parent_dir']}/{row.PhotoFileName}") 
+                context.log.info(
+                    f"🚀 Download photo: {context.op_config['parent_dir']}/{row.PhotoFileName}"
+                )
     return zpath
+
 
 @op(
     config_schema={
@@ -622,7 +614,7 @@ def create_photo_records(context: OpExecutionContext, zpath: str):
     conn: MSSqlServerResource = context.resources.sql_server
     df = pd.read_parquet(zpath)
     count_created = 0
-    for row in df.itertuples(index=True,name='Panda'):   
+    for row in df.itertuples(index=True, name="Panda"):
         cursor = conn.execute(
             context, "Exec sp_CreateAbCasePhotoZ ?, ? ", row.AbCaseId, row.PhotoFileName
         )
@@ -636,16 +628,14 @@ def create_photo_records(context: OpExecutionContext, zpath: str):
                 )
                 count_created += 1
             case "Missing":
-                context.log.info(
-                    f"🚀 Not found record with caseid - {row.AbCaseId}."
-                )
-        cursor.close() 
+                context.log.info(f"🚀 Not found record with caseid - {row.AbCaseId}.")
+        cursor.close()
     context.log.info(
         f"🚀 {datetime.now().strftime('%Y-%m-%d %H:%M')} {count_created} abcasephoto record(s) created."
-    )           
+    )
     return context.op_config["parent_dir"]
 
-    from pathlib import Path
+
 @op(
     config_schema={
         "destination_dir": Field(
@@ -664,6 +654,7 @@ def create_photo_records(context: OpExecutionContext, zpath: str):
 )
 def copy_photo_files(context: OpExecutionContext, parent_dir: str):
     import shutil
+
     source_folder = Path(parent_dir)
     destination_folder = Path(context.op_config["destination_dir"])
     count = 0
@@ -672,7 +663,7 @@ def copy_photo_files(context: OpExecutionContext, parent_dir: str):
             if os.path.splitext(file)[1] == ".jpeg":
                 count += 1
                 source = Path(root) / file
-                shutil.copy(source,destination_folder)
+                shutil.copy(source, destination_folder)
                 context.log.info(
                     f"🚀 {count}: Copy {source} to  {destination_folder}. File type is {os.path.splitext(file)[1]}"
                 )
@@ -680,6 +671,7 @@ def copy_photo_files(context: OpExecutionContext, parent_dir: str):
         f"🚀 {datetime.now().strftime('%Y-%m-%d %H:%M')} {count} photo(s) moved."
     )
     return parent_dir
+
 
 @job(
     resource_defs={
@@ -694,7 +686,7 @@ def process_zendesk_data():
     # No data, just remove parent dir
     files_deleted = remove_dir(stop)
 
-    # There is data, keep processing 
+    # There is data, keep processing
     stop, proceed = read_reports(proceed)
     files_deleted = remove_dir(stop)
 
@@ -702,13 +694,16 @@ def process_zendesk_data():
     # No new cases to process
     files_deleted = remove_dir(stop)
 
-    # Proceed to check for photos for new cases  
-    stop, proceed =  get_photo_urls(proceed)
+    # Proceed to check for photos for new cases
+    stop, proceed = get_photo_urls(proceed)
     # No photos to process
     files_deleted = remove_dir(stop)
-    
+
     # There is photos to download
-    files_deleted = remove_dir(copy_photo_files(create_photo_records(download_photos(proceed))))
+    files_deleted = remove_dir(
+        copy_photo_files(create_photo_records(download_photos(proceed)))
+    )
+
 
 @schedule(
     job=process_zendesk_data,
@@ -765,16 +760,16 @@ def zendesk_api_schedule(context: ScheduleEvaluationContext):
                         "parent_dir": f"{EnvVar('DAGSTER_SHARE_BASEPATH').get_value()}{execution_date_path}",
                     },
                 },
-                 "create_photo_records": {
+                "create_photo_records": {
                     "config": {
                         "parent_dir": f"{EnvVar('DAGSTER_SHARE_BASEPATH').get_value()}{execution_date_path}",
                     },
                 },
                 "copy_photo_files": {
                     "config": {
-                        "destination_dir":f"{EnvVar('ABAUTOS_IMAGE_PATH').get_value()}",
+                        "destination_dir": f"{EnvVar('ABAUTOS_IMAGE_PATH').get_value()}",
                     },
-                }
+                },
             },
         },
     )
