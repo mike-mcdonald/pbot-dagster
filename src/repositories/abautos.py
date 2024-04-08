@@ -595,19 +595,9 @@ def download_photos(context: OpExecutionContext, zpath: str):
 
 
 @op(
-    config_schema={
-        "parent_dir": Field(
-            String,
-            description="The parent directory location",
-        ),
-    },
     ins={
         "zpath": In(String),
     },
-    out=Out(
-        String,
-        description="The parent dir for removal to cleanup ",
-    ),
     required_resource_keys={"sql_server"},
 )
 def create_photo_records(context: OpExecutionContext, zpath: str):
@@ -633,7 +623,6 @@ def create_photo_records(context: OpExecutionContext, zpath: str):
     context.log.info(
         f"🚀 {datetime.now().strftime('%Y-%m-%d %H:%M')} {count_created} abcasephoto record(s) created."
     )
-    return context.op_config["parent_dir"]
 
 
 @op(
@@ -642,9 +631,13 @@ def create_photo_records(context: OpExecutionContext, zpath: str):
             String,
             description="The abautos image directory location",
         ),
+        "parent_dir": Field(
+            String,
+            description="The download photos directory location",
+        ),
     },
     ins={
-        "parent_dir": In(String),
+        "zpath": In(String),
     },
     out=Out(
         String,
@@ -652,25 +645,27 @@ def create_photo_records(context: OpExecutionContext, zpath: str):
     ),
     required_resource_keys={"sql_server"},
 )
-def copy_photo_files(context: OpExecutionContext, parent_dir: str):
+def copy_photo_files(context: OpExecutionContext,  zpath: str):
     import shutil
 
-    source_folder = Path(parent_dir)
+    df = pd.read_parquet(zpath)
+    source_folder = Path(context.op_config["parent_dir"])
     destination_folder = Path(context.op_config["destination_dir"])
-    count = 0
-    for root, _, files in os.walk(source_folder):
-        for file in files:
-            if os.path.splitext(file)[1] == ".jpeg":
-                count += 1
-                source = Path(root) / file
-                shutil.copy(source, destination_folder)
-                context.log.info(
-                    f"🚀 {count}: Copy {source} to  {destination_folder}. File type is {os.path.splitext(file)[1]}"
-                )
+
+    def copyFile (photoFileName: str):
+         shutil.copy(source_folder / photoFileName, destination_folder)
+         context.log.info(
+             f"🚀 Copied: {source_folder/photoFileName} to {destination_folder}"
+
+        )
+        
+
+    df.PhotoFileName.apply(copyFile)
+   
     context.log.info(
-        f"🚀 {datetime.now().strftime('%Y-%m-%d %H:%M')} {count} photo(s) moved."
+        f"🚀 {datetime.now().strftime('%Y-%m-%d %H:%M')} photo(s) moved."
     )
-    return parent_dir
+    return context.op_config["parent_dir"]
 
 
 @job(
@@ -698,10 +693,13 @@ def process_zendesk_data():
     stop, proceed = get_photo_urls(proceed)
     # No photos to process
     files_deleted = remove_dir(stop)
-
     # There is photos to download
+    zpath = download_photos(proceed)
+    # Create abcasephoto record
+    create_photo_records(zpath)
+    # Move photos to abautos/images folder
     files_deleted = remove_dir(
-        copy_photo_files(create_photo_records(download_photos(proceed)))
+        copy_photo_files(zpath)
     )
 
 
@@ -713,7 +711,7 @@ def process_zendesk_data():
 def zendesk_api_schedule(context: ScheduleEvaluationContext):
     execution_date = context.scheduled_execution_time
 
-    execution_date_path = execution_date.strftime("%Y%m%dT%H%M%S")
+    execution_date_path = f"{EnvVar('DAGSTER_SHARE_BASEPATH').get_value()}{execution_date.strftime('%Y%m%dT%H%M%S')}"
 
     execution_date = execution_date.isoformat()
 
@@ -729,8 +727,8 @@ def zendesk_api_schedule(context: ScheduleEvaluationContext):
                 "fetch_reports": {
                     "config": {
                         "interval": 5,
-                        "path": f"{EnvVar('DAGSTER_SHARE_BASEPATH').get_value()}{execution_date_path}/output.json",
-                        "parent_dir": f"{EnvVar('DAGSTER_SHARE_BASEPATH').get_value()}{execution_date_path}",
+                        "path": f"{execution_date_path}/output.json",
+                        "parent_dir": execution_date_path,
                         "scheduled_date": execution_date,
                         "substitutions": {
                             "execution_date": execution_date,
@@ -741,33 +739,29 @@ def zendesk_api_schedule(context: ScheduleEvaluationContext):
                 },
                 "read_reports": {
                     "config": {
-                        "parent_dir": f"{EnvVar('DAGSTER_SHARE_BASEPATH').get_value()}{execution_date_path}",
+                        "parent_dir": execution_date_path,
                         "zpath": f"{EnvVar('DAGSTER_SHARE_BASEPATH').get_value()}{execution_date_path}/df.parquet",
                     },
                 },
                 "write_reports": {
                     "config": {
-                        "parent_dir": f"{EnvVar('DAGSTER_SHARE_BASEPATH').get_value()}{execution_date_path}",
+                        "parent_dir": execution_date_path,
                     },
                 },
                 "get_photo_urls": {
                     "config": {
-                        "parent_dir": f"{EnvVar('DAGSTER_SHARE_BASEPATH').get_value()}{execution_date_path}",
+                        "parent_dir": execution_date_path,
                     },
                 },
                 "download_photos": {
                     "config": {
-                        "parent_dir": f"{EnvVar('DAGSTER_SHARE_BASEPATH').get_value()}{execution_date_path}",
-                    },
-                },
-                "create_photo_records": {
-                    "config": {
-                        "parent_dir": f"{EnvVar('DAGSTER_SHARE_BASEPATH').get_value()}{execution_date_path}",
+                        "parent_dir": execution_date_path,
                     },
                 },
                 "copy_photo_files": {
                     "config": {
                         "destination_dir": f"{EnvVar('ABAUTOS_IMAGE_PATH').get_value()}",
+                        "parent_dir": execution_date_path,
                     },
                 },
             },
