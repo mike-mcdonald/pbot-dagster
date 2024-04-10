@@ -83,7 +83,6 @@ def fetch_reports(context: OpExecutionContext):
     api_key = context.op_config["zendesk_key"]
     interval = context.op_config["interval"]
     scheduled_date = context.op_config["scheduled_date"]
-
     start_date = datetime.fromisoformat(scheduled_date)
     end_date = start_date + timedelta(minutes=int(interval))
 
@@ -136,15 +135,6 @@ def fetch_reports(context: OpExecutionContext):
         yield Output(path, "proceed")
 
 
-def area_searcher(search_str: str, search_list: str):
-    search_obj = re.search(search_list, search_str)
-    if search_obj:
-        return_str = search_str[search_obj.start() : search_obj.end()].strip()
-    else:
-        return_str = "SE"
-    return return_str
-
-
 @op(
     config_schema={
         "parent_dir": Field(
@@ -184,6 +174,14 @@ def read_reports(context: OpExecutionContext, path: str):
     # it finds the individual area and not as part of a word. So, do not remove the blanks.
     area_list = [" E ", " N ", " NE ", " NW ", " S ", " SE ", " SW ", " W "]
     areapattern = "|".join(area_list)
+
+    def area_searcher(search_str: str, search_list: str):
+        search_obj = re.search(search_list, search_str)
+        if search_obj:
+            return_str = search_str[search_obj.start() : search_obj.end()].strip()
+        else:
+            return_str = "SE"
+        return return_str
 
     column_name = [
         "Id",
@@ -382,9 +380,6 @@ def read_reports(context: OpExecutionContext, path: str):
     df = df.fillna("")
     df = df.drop("Names", axis=1)
     count_reports = len(df.index)
-    context.log.info(
-        f"🚀{datetime.now().strftime('%Y-%m-%d %H:%M')}: Read {count_reports} Zendesk Abandoned Autos reports."
-    )
 
     if len(df) == 0:
         yield Output(context.op_config["parent_dir"], "stop")
@@ -437,16 +432,10 @@ def write_reports(context: OpExecutionContext, zpath: str):
             raise Exception
         match results[1]:
             case "Success":
-                context.log.info(
-                    f"🚀 Write reports successfully for Zendesk ID - {row[0]} with caseid - {str(results[0])}."
-                )
                 count_created += 1
                 caseId.append(str(results[0]))
                 caseNo.append(str(results[2]))
             case "Duplicate":
-                context.log.info(
-                    f"🚀 Write reports duplicate Zendesk ID - {row[0]}. Caseid - {str(results[0])} already exist."
-                )
                 caseId.append("Duplicate")
                 caseNo.append("0")
             case _:
@@ -454,15 +443,15 @@ def write_reports(context: OpExecutionContext, zpath: str):
                 caseNo.append("0")
         cursor.close()
     context.log.info(
-        f"🚀 {datetime.now().strftime('%Y-%m-%d %H:%M')} Write reports: {count_created} cases created in Abandoned Autos database."
+        f"🚀 {count_created} cases created in Abandoned Autos database."
     )
-    context.log.info(f"🚀 Before: {df.to_string()} ")
+    # Add two columns
     df["AbCaseId"], df["CaseNo"] = [caseId, caseNo]
-
-    context.log.info(f"🚀 After: {df.to_string()} ")
+  
     # Remove records which are 'Duplicate' or 'Catchall'
     mask = df["AbCaseId"].isin(["Duplicate", "CatchAll"])
     df = df[~mask]
+
     if len(df) == 0:
         yield Output(context.op_config["parent_dir"], "stop")
     else:
@@ -502,14 +491,13 @@ def get_photo_urls(context: OpExecutionContext, zpath: str):
     truststore.inject_into_ssl()
 
     df = pd.read_parquet(zpath)
-    context.log.info(f"🚀 {df.to_string()}")
     (id, abCaseId, photoUrl, photoFileName) = ([], [], [], [])
 
     headers = {
         "Authorization": f"Bearer {os.getenv('zendesk_key')}",
         "Content-Type": "application/json",
     }
-
+    count = 0
     for row in df.itertuples(index=True, name="Pandas"):
         url = f"{os.getenv('zendesk_url')}/api/v2/tickets/{row.Id}/comments"
         response = requests.get(
@@ -524,7 +512,7 @@ def get_photo_urls(context: OpExecutionContext, zpath: str):
             )
 
         comments = response.json().get("comments")
-        count = 1
+        
         for comment in comments:
             attachments = comment["attachments"]
             for attachment in attachments:
@@ -533,13 +521,7 @@ def get_photo_urls(context: OpExecutionContext, zpath: str):
                     photoFileName.append(f"{row.CaseNo}-{count}.jpeg")
                     id.append(row.Id)
                     abCaseId.append(row.AbCaseId)
-                    context.log.info(
-                        f"🚀 {datetime.now().strftime('%Y-%m-%d %H:%M')} Photo url: {attachment['content_url']} Photo filename: {row.CaseNo}-{count}.jpeg"
-                    )
                     count += 1
-        context.log.info(
-            f"🚀 {datetime.now().strftime('%Y-%m-%d %H:%M')} {count-1} photo for ZendeskID {row.Id} and Abcaseid {row.AbCaseId}."
-        )
 
     photoDf = pd.DataFrame(
         [
@@ -550,9 +532,9 @@ def get_photo_urls(context: OpExecutionContext, zpath: str):
         ]
     ).T
     photoDf.columns = ["Id", "AbCaseId", "PhotoUrl", "PhotoFileName"]
-
     photoDf.to_parquet(zpath, index=False)
-    context.log.info(f"🚀 {photoDf.to_string()}")
+    new_line = "\n"
+    context.log.info(f"🚀 {count} photos {new_line}: {photoDf.to_markdown()} ")
     if len(photoDf) == 0:
         yield Output(context.op_config["parent_dir"], "stop")
     else:
@@ -573,7 +555,6 @@ def get_photo_urls(context: OpExecutionContext, zpath: str):
         String,
         description="The dataframe parquet file with list of photos downloaded",
     ),
-    required_resource_keys={"sql_server"},
 )
 def download_photos(context: OpExecutionContext, zpath: str):
     import shutil
@@ -581,16 +562,13 @@ def download_photos(context: OpExecutionContext, zpath: str):
 
     truststore.inject_into_ssl()
     df = pd.read_parquet(zpath)
-    context.log.info(f"🚀 Download photo dataframe: {df.to_string()}")
     for row in df.itertuples(index=False, name="Panda"):
         with requests.get(row.PhotoUrl, stream=True) as r:
             with open(
                 f"{context.op_config['parent_dir']}/{row.PhotoFileName}", "wb"
             ) as f:
                 shutil.copyfileobj(r.raw, f)
-                context.log.info(
-                    f"🚀 Download photo: {context.op_config['parent_dir']}/{row.PhotoFileName}"
-                )
+
     return zpath
 
 
@@ -613,15 +591,12 @@ def create_photo_records(context: OpExecutionContext, zpath: str):
             raise Exception
         match results[1]:
             case "Success":
-                context.log.info(
-                    f"🚀 Successfully create abcasephoto record for file '{str(results[0])}' with caseid - {row.AbCaseId}."
-                )
                 count_created += 1
             case "Missing":
-                context.log.info(f"🚀 Not found record with caseid - {row.AbCaseId}.")
+                context.log.warning(f"🚀 Not found record with caseid - {row.AbCaseId}. Did create abcasephoto record.")
         cursor.close()
     context.log.info(
-        f"🚀 {datetime.now().strftime('%Y-%m-%d %H:%M')} {count_created} abcasephoto record(s) created."
+        f"🚀 {count_created} photo records created in Abandoned Autos database."
     )
 
 
@@ -643,7 +618,6 @@ def create_photo_records(context: OpExecutionContext, zpath: str):
         String,
         description="The parent dir for removal to cleanup ",
     ),
-    required_resource_keys={"sql_server"},
 )
 def copy_photo_files(context: OpExecutionContext,  zpath: str):
     import shutil
@@ -654,17 +628,9 @@ def copy_photo_files(context: OpExecutionContext,  zpath: str):
 
     def copyFile (photoFileName: str):
          shutil.copy(source_folder / photoFileName, destination_folder)
-         context.log.info(
-             f"🚀 Copied: {source_folder/photoFileName} to {destination_folder}"
-
-        )
         
-
     df.PhotoFileName.apply(copyFile)
-   
-    context.log.info(
-        f"🚀 {datetime.now().strftime('%Y-%m-%d %H:%M')} photo(s) moved."
-    )
+    
     return context.op_config["parent_dir"]
 
 
