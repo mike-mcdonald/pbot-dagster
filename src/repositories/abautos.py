@@ -2,16 +2,20 @@ import json
 import numpy as np
 import os
 import pandas as pd
-import pyodbc
 import re
 import requests
 import textwrap
 
+from typing import Any, Iterable
+
 from dagster import (
     EnvVar,
+    Failure,
     Field,
+    HookContext,
     In,
     Int,
+    MetadataValue,
     OpExecutionContext,
     Out,
     Output,
@@ -19,6 +23,7 @@ from dagster import (
     RunRequest,
     ScheduleEvaluationContext,
     String,
+    failure_hook,
     fs_io_manager,
     job,
     op,
@@ -66,53 +71,56 @@ from resources.mssql import MSSqlServerResource, mssql_resource
             description="Zendesk API key to pass for authentication",
         ),
     },
-    out={
-        "stop": Out(
-            String,
-            "The parent folder",
-            is_required=False,
-        ),
-        "proceed": Out(
-            String,
-            "The path to the json file created from calling the Zendesk API",
-            is_required=False,
-        ),
-    },
+    out=Out(
+        String,
+        "The path to the json file created from calling the Zendesk API",
+    ),
 )
 def fetch_reports(context: OpExecutionContext):
-    api_key = context.op_config["zendesk_key"]
-    interval = context.op_config["interval"]
-    scheduled_date = context.op_config["scheduled_date"]
-    start_date = datetime.fromisoformat(scheduled_date)
-    end_date = start_date + timedelta(minutes=int(interval))
+    import truststore
+
+    truststore.inject_into_ssl()
+
+    start_date = datetime.fromisoformat(context.op_config["scheduled_date"])
+    end_date = start_date + timedelta(minutes=int(context.op_config["interval"]))
 
     session = requests.Session()
 
-    def get_exports(url):
+    def fetch(url: str, params: dict):
         res = session.get(
             url,
             headers={
-                "Authorization": f"Bearer {api_key}",
+                "Authorization": f"Bearer {context.op_config['zendesk_key']}",
                 "Content-Type": "application/json",
             },
-            verify=False,
+            params=params,
         )
 
         if res.status_code != 200:
-            raise Exception(
-                f"🔥 Fetch reports error '{res.status_code}' - '{res.text}'..."
+            raise Failure(
+                description="Fetch reports error",
+                metadata={
+                    "url": MetadataValue.url(res.url),
+                    "status_code": MetadataValue.int(res.status_code),
+                    "text": MetadataValue.text(res.text),
+                },
             )
 
         return res.json()
 
-    res = get_exports(
-        f"{context.op_config['zendesk_url']}/api/v2/search/export?page[size]=1000&filter[type]=ticket&query=group_id:18716157058327 ticket_form_id:17751920813847 created>={start_date.isoformat()} created<{end_date.isoformat()}"
+    res = fetch(
+        f"{context.op_config['zendesk_url']}/api/v2/search/export",
+        {
+            "page[size]": 1000,
+            "filter[type]": "ticket",
+            "query": f"group_id:18716157058327 ticket_form_id:17751920813847 created>={start_date.isoformat()} created<{end_date.isoformat()}",
+        },
     )
 
     data = res.get("results", [])
 
     while res.get("meta").get("has_more"):
-        res = get_exports(res.get("links").get("next"))
+        res = fetch(res.get("links").get("next"))
         data.append(res.get("results", []))
 
     path = context.op_config["path"]
@@ -130,9 +138,15 @@ def fetch_reports(context: OpExecutionContext):
         json.dump(data, fd)
 
     if len(data) == 0:
-        yield Output(context.op_config["parent_dir"], "stop")
-    else:
-        yield Output(path, "proceed")
+        raise Failure(
+            description="No reports retrieved",
+            metadata={
+                "start_date": MetadataValue.text(str(start_date)),
+                "end_date": MetadataValue.text(str(end_date)),
+            },
+        )
+
+    return path
 
 
 @op(
@@ -143,224 +157,85 @@ def fetch_reports(context: OpExecutionContext):
         ),
         "zpath": Field(
             String,
-            description="The parquet file location",
+            description="The file location to write the DataFrame to",
         ),
     },
     ins={
         "path": In(String),
     },
-    out={
-        "stop": Out(
-            String,
-            "The parent dir to remove when there is no cases to process",
-            is_required=False,
-        ),
-        "proceed": Out(
-            String,
-            "The path to the parquet file created with list of cases created",
-            is_required=False,
-        ),
-    },
+    out=Out(
+        String,
+        "The path to the processed DataFrame",
+    ),
 )
 def read_reports(context: OpExecutionContext, path: str):
-    with open(path, "r") as file:
-        data: list = json.load(file)
+    df = pd.read_json(path, orient="records")
 
-    # this indicates it is an abautos zendesk report
-    abautos_details_key_value = 17698062540823
-    # indicates it is the occupied field
-    abautos_occupied_key_value = 14510509580823
-    # To find the area, this list's values has leading and trailing blanks so that
-    # it finds the individual area and not as part of a word. So, do not remove the blanks.
-    area_list = [" E ", " N ", " NE ", " NW ", " S ", " SE ", " SW ", " W "]
-    areapattern = "|".join(area_list)
+    df = df.rename(columns={"id": "Id"})
 
-    def area_searcher(search_str: str, search_list: str):
-        search_obj = re.search(search_list, search_str)
-        if search_obj:
-            return_str = search_str[search_obj.start() : search_obj.end()].strip()
-        else:
-            return_str = "SE"
-        return return_str
+    def get_zendesk_field(iter: Iterable, id: int):
+        return next(filter(lambda f: f.get("id") == id, iter)).get("value")
 
-    column_name = [
-        "Id",
-        "Color",
-        "Type",
-        "Make",
-        "State",
-        "License",
-        "Detail",
-        "Area",
-        "Address",
-        "Lat",
-        "Lng",
-        "FirstName",
-        "LastName",
-        "Phone",
-        "Email",
-        "Waived",
-        "Occupied",
-        "Names",
-    ]
-
-    (
-        id,
-        vehColor,
-        vehType,
-        vehMake,
-        vehState,
-        vehLicense,
-        detail,
-        area,
-        address,
-        lat,
-        lng,
-        firstName,
-        lastName,
-        phone,
-        email,
-        waived,
-        occupied,
-        names,
-    ) = ([], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [])
-
-    for report_record in data:
-        zendeskId = str(report_record["id"])
-        details = ""
-        ## the main data we are looking is on the value property
-        ## of one of many custom field id/value pairs
-        custom_fields = report_record["custom_fields"]
-        occupied_field = [
-            r for r in custom_fields if r["id"] == abautos_occupied_key_value
-        ][0]["value"]
-        ## filter custom fields to find the one for AbAutos Reports
-        ## and return just the value pair for it as json
-        abautos_report_fields = json.loads(
-            [r for r in custom_fields if r["id"] == abautos_details_key_value][0][
-                "value"
-            ]
-        )
-
-        id.append(zendeskId)
-        vehColor.append(abautos_report_fields["report_vehicle:color"]["value"].upper())
-        vehType.append(abautos_report_fields["report_vehicle:type"]["value"].upper())
-        vehMake.append(abautos_report_fields["report_vehicle:make"]["value"].upper())
-        vehState.append(
-            abautos_report_fields["report_vehicle:license_plate_state"]["value"].upper()
-        )
-        vehLicense.append(
-            abautos_report_fields["report_vehicle:license_plate_number"][
-                "value"
-            ].upper()
-        )
-        address.append(
-            abautos_report_fields["report_location:location_address"]["value"]
-            .replace(r"/", "")
-            .replace(r"\\", "")
-        )
-        lat.append(abautos_report_fields["report_location:location_lat"]["value"])
-        lng.append(abautos_report_fields["report_location:location_lon"]["value"])
-
-        if "contact_name" in abautos_report_fields:
-            names.append(abautos_report_fields["contact_name"]["value"])
-        if "contact_phone" in abautos_report_fields:
-            phone.append(abautos_report_fields["contact_phone"]["value"])
-        if "contact_email" in abautos_report_fields:
-            email.append(abautos_report_fields["contact_email"]["value"])
-        if "confidentiality_waiver" in abautos_report_fields:
-            waived.append(abautos_report_fields["confidentiality_waiver"]["value"])
-
-        occupied.append(occupied_field)
-
-        # Details consist of the following fields
-        # Need to check if exists to take care of KeyError
-        # for all the keys below.
-        if "report_is_camp" in abautos_report_fields:
-            camp = str(abautos_report_fields["report_is_camp"]["value"]).strip()
-            if len(camp) > 0:
-                details = details + "Camp:" + camp + " "
-
-        if "report_vehicle_inoperable" in abautos_report_fields:
-            inoperables = (
-                str(abautos_report_fields["report_vehicle_inoperable"]["value"])
-                .replace("[", "")
-                .replace("]", "")
-                .replace("'", "")
-            )
-            if len(inoperables) > 0:
-                details = details + inoperables + " "
-
-        if "report_location_is_private" in abautos_report_fields:
-            isprivate = abautos_report_fields["report_location_is_private"][
-                "value"
-            ].strip()
-            if len(isprivate) > 0:
-                details = details + "Private:" + isprivate + " "
-
-        if "report_location:location_details" in abautos_report_fields:
-            locdetails = (
-                str(abautos_report_fields["report_location:location_details"]["value"])
-                .strip()
-                .replace("[", "")
-                .replace("]", "")
-                .replace("'", "")
-            )
-            if len(locdetails) > 0:
-                details = details + locdetails + " "
-
-        if "report_location:location_attributes" in abautos_report_fields:
-            locattr = (
-                str(
-                    abautos_report_fields["report_location:location_attributes"][
-                        "value"
-                    ]
-                )
-                .strip()
-                .replace("[", "")
-                .replace("]", "")
-                .replace("'", "")
-            )
-            if len(locattr) > 0:
-                details = details + locattr + " "
-
-        # Need to truncate details string because the stored procedure fails if max string length is > 128 char
-        max_size = 128
-        if len(details) <= max_size:
-            description = details
-        else:
-            description = textwrap.wrap(details, max_size - 3)[0] + "..."
-        detail.append(description)
-
-    df = pd.DataFrame(
-        [
-            id,
-            vehColor,
-            vehType,
-            vehMake,
-            vehState,
-            vehLicense,
-            detail,
-            area,
-            address,
-            lat,
-            lng,
-            firstName,
-            lastName,
-            phone,
-            email,
-            waived,
-            occupied,
-            names,
-        ]
-    ).T
-    df.columns = column_name
-
-    df["Area"] = df["Address"].apply(
-        lambda x: area_searcher(search_str=x, search_list=areapattern)
+    df["Occupied"] = df.custom_fields.map(
+        lambda x: get_zendesk_field(x, 14510509580823)
     )
-    df["FirstName"] = df["Names"].astype(str).str.split().str[0]
-    df["LastName"] = df["Names"].astype(str).str.split().str[1]
+
+    df["Occupied"] = np.select(
+        condlist=[df["Occupied"] == True, df["Occupied"] == False],
+        choicelist=["YES", "NO"],
+        default="UNKNOWN",
+    )
+
+    df["report_fields"] = df.custom_fields.map(
+        lambda x: json.loads(get_zendesk_field(x, 17698062540823))
+    )
+
+    def get_report_field(fields: dict, key: str) -> Any:
+        return fields.get(key, {}).get("value")
+
+    df["Color"] = df.report_fields.map(
+        lambda x: get_report_field(x, "report_vehicle:color").upper()
+    )
+
+    df["Type"] = df.report_fields.map(
+        lambda x: get_report_field(x, "report_vehicle:type").upper()
+    )
+
+    df["Make"] = df.report_fields.map(
+        lambda x: get_report_field(x, "report_vehicle:make").upper()
+    )
+
+    df["State"] = df.report_fields.map(
+        lambda x: get_report_field(x, "report_vehicle:license_plate_state").upper()
+    )
+
+    df["License"] = df.report_fields.map(
+        lambda x: get_report_field(x, "report_vehicle:license_plate_number").upper()
+    )
+
+    df["Address"] = df.report_fields.map(
+        lambda x: get_report_field(x, "report_location:location_address")
+        .replace(r"/", "")
+        .replace(r"\\", "")
+    )
+
+    df["Lat"] = df.report_fields.map(
+        lambda x: float(get_report_field(x, "report_location:location_lat"))
+    )
+
+    df["Lng"] = df.report_fields.map(
+        lambda x: float(get_report_field(x, "report_location:location_lon"))
+    )
+
+    df["Names"] = df.report_fields.map(lambda x: get_report_field(x, "contact_name"))
+
+    df["Phone"] = df.report_fields.map(lambda x: get_report_field(x, "contact_phone"))
+
+    df["Email"] = df.report_fields.map(lambda x: get_report_field(x, "contact_email"))
+
+    df["Waived"] = df.report_fields.map(
+        lambda x: get_report_field(x, "confidentiality_waiver")
+    )
     df["Waived"] = np.select(
         condlist=[
             (df["Waived"] == "I do not waive confidentiality"),
@@ -371,23 +246,72 @@ def read_reports(context: OpExecutionContext, path: str):
         default="0",
     )
 
-    df["Occupied"] = np.select(
-        condlist=[df["Occupied"] == True, df["Occupied"] == False],
-        choicelist=["YES", "NO"],
-        default="UNKNOWN",
-    )
+    def create_description(fields: dict):
+        camp = get_report_field(fields, "report_is_camp")
+        camp = f"Camp:{camp}" if camp is not None else None
+
+        inoperables = " ".join(
+            get_report_field(fields, "report_vehicle_inoperable")
+        ).replace("'", "")
+
+        private = get_report_field(fields, "report_location_is_private")
+        private = f"Private:{private}" if private is not None else None
+
+        details = " ".join(
+            get_report_field(fields, "report_location:location_details")
+        ).replace("'", "")
+
+        attrs = get_report_field(fields, "report_location:location_attributes").strip()
+
+        desc = re.sub(
+            r"\s{2,}", " ", " ".join([camp, inoperables, private, details, attrs])
+        )
+
+        max_size = 128
+        if len(desc) <= max_size:
+            desc = desc[:125] + "..."
+
+        return desc
+
+    df["Details"] = df.report_fields.map(create_description)
+
+    def get_area(address: str):
+        m = re.match(r" [ENSW]{1,2} ", address)
+        return "SE" if m is None else m.group().strip()
+
+    df["Area"] = df["Address"].map(get_area)
+
+    df["FirstName"] = df["Names"].astype(str).str.split().str[0]
+    df["LastName"] = df["Names"].astype(str).str.split().str[1]
 
     df = df.fillna("")
-    df = df.drop("Names", axis=1)
-    count_reports = len(df.index)
 
-    if len(df) == 0:
-        yield Output(context.op_config["parent_dir"], "stop")
-    else:
-        zpath = context.op_config["zpath"]
-        Path(zpath).parent.resolve().mkdir(parents=True, exist_ok=True)
-        df.to_parquet(zpath, index=False)
-        yield Output(zpath, "proceed")
+    df = df[
+        [
+            "Id",
+            "Color",
+            "Type",
+            "Make",
+            "License",
+            "State",
+            "Details",
+            "Area",
+            "Address",
+            "Lat",
+            "Lng",
+            "FirstName",
+            "LastName",
+            "Phone",
+            "Email",
+            "Waived",
+            "Occupied",
+        ]
+    ]
+
+    zpath = context.op_config["zpath"]
+    Path(zpath).parent.resolve().mkdir(parents=True, exist_ok=True)
+    df.to_parquet(zpath, index=False)
+
     return zpath
 
 
@@ -401,65 +325,49 @@ def read_reports(context: OpExecutionContext, path: str):
     ins={
         "zpath": In(String),
     },
-    out={
-        "stop": Out(
-            String,
-            "The parent dir to remove when there is no more cases to process",
-            is_required=False,
-        ),
-        "proceed": Out(
-            String,
-            "The path to the parquet file created with list of cases created",
-            is_required=False,
-        ),
-    },
+    out=Out(
+        String,
+        "The path to the parquet file created with list of cases created",
+    ),
     required_resource_keys={"sql_server"},
 )
 def write_reports(context: OpExecutionContext, zpath: str):
     df = pd.read_parquet(zpath)
-    (caseId, caseNo) = ([], [])
-
-    count_created = 0
 
     conn: MSSqlServerResource = context.resources.sql_server
 
-    for row in df.itertuples(index=False, name=None):
+    context.log.info(f"🚀 Attempting to add {len(df)} cases to database...")
+    trace = datetime.now()
+    results = []
+
+    for row in df.itertuples(index=False):
         cursor = conn.execute(
             context, "Exec sp_CreateAbCaseZ ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? ", *row
         )
-        results = cursor.fetchone()
-        if results is None:
-            raise Exception
-        match results[1]:
-            case "Success":
-                count_created += 1
-                caseId.append(str(results[0]))
-                caseNo.append(str(results[2]))
-            case "Duplicate":
-                caseId.append("Duplicate")
-                caseNo.append("0")
-            case _:
-                caseId.append("CatchAll")
-                caseNo.append("0")
+        res = cursor.fetchone()
+
+        if res is None:
+            raise Failure("Failed to successfully execute stored procedure")
+
+        (id, status, case_number) = res
+
+        if status == "Success":
+            results.append({"Id": row.Id, "AbCaseId": id, "CaseNo": case_number})
+
         cursor.close()
-    context.log.info(
-        f"🚀 {count_created} cases created in Abandoned Autos database."
-    )
-    # Add two columns
-    df["AbCaseId"], df["CaseNo"] = [caseId, caseNo]
-  
-    # Remove records which are 'Duplicate' or 'Catchall'
-    mask = df["AbCaseId"].isin(["Duplicate", "CatchAll"])
-    df = df[~mask]
+
+    context.log.info(f"Created {len(results)} new cases in {datetime.now() - trace}.")
+
+    df = pd.DataFrame.from_records(results)
 
     if len(df) == 0:
-        yield Output(context.op_config["parent_dir"], "stop")
-    else:
-        # Keep only columns Id, AbCaseId, CaseNo
-        cols_to_keep = ["Id", "AbCaseId", "CaseNo"]
-        df.drop(columns=df.columns.difference(cols_to_keep), inplace=True)
-        df.to_parquet(zpath, index=False)
-        yield Output(zpath, "proceed")
+        raise Failure(
+            "No data written to database",
+        )
+
+    df.to_parquet(zpath, index=False)
+
+    return zpath
 
 
 @op(
@@ -472,73 +380,59 @@ def write_reports(context: OpExecutionContext, zpath: str):
     ins={
         "zpath": In(String),
     },
-    out={
-        "stop": Out(
-            String,
-            "The parent dir to remove because there are no photos",
-            is_required=False,
-        ),
-        "proceed": Out(
-            String,
-            "The path to the parquet file created with list of photo urls",
-            is_required=False,
-        ),
-    },
+    out=Out(
+        String,
+        "The path to the parquet file created with list of photo urls",
+    ),
 )
 def get_photo_urls(context: OpExecutionContext, zpath: str):
     import truststore
 
     truststore.inject_into_ssl()
 
-    df = pd.read_parquet(zpath)
-    (id, abCaseId, photoUrl, photoFileName) = ([], [], [], [])
+    df = []
 
-    headers = {
-        "Authorization": f"Bearer {os.getenv('zendesk_key')}",
-        "Content-Type": "application/json",
-    }
-    count = 0
-    for row in df.itertuples(index=True, name="Pandas"):
-        url = f"{os.getenv('zendesk_url')}/api/v2/tickets/{row.Id}/comments"
+    for row in pd.read_parquet(zpath).itertuples(index=True):
         response = requests.get(
-            url,
-            headers=headers,
-            verify=False,
+            f"{os.getenv('zendesk_url')}/api/v2/tickets/{row.Id}/comments",
+            headers={
+                "Authorization": f"Bearer {os.getenv('ZENDESK_API_KEY')}",
+                "Content-Type": "application/json",
+            },
         )
 
         if response.status_code != 200:
             raise Exception(
-                f"🔥 Fetch photos error '{response.status_code}' - '{response.text}'..."
+                f"🔥 Error retriving comments: '{response.status_code}' - '{response.text}'"
             )
 
         comments = response.json().get("comments")
-        
-        for comment in comments:
-            attachments = comment["attachments"]
-            for attachment in attachments:
-                if "image" in attachment["content_type"]:
-                    photoUrl.append(attachment["content_url"])
-                    photoFileName.append(f"{row.CaseNo}-{count}.jpeg")
-                    id.append(row.Id)
-                    abCaseId.append(row.AbCaseId)
-                    count += 1
 
-    photoDf = pd.DataFrame(
-        [
-            id,
-            abCaseId,
-            photoUrl,
-            photoFileName,
-        ]
-    ).T
-    photoDf.columns = ["Id", "AbCaseId", "PhotoUrl", "PhotoFileName"]
+        count = 0
+        for comment in comments:
+            for attachment in comment["attachments"]:
+                if "image" in attachment["content_type"]:
+                    df.append(
+                        {
+                            "Id": row.Id,
+                            "AbCaseId": row.AbCaseId,
+                            "PhotoUrl": attachment["content_url"],
+                            "PhotoFileName": f"{row.CaseNo}-{count}.jpeg",
+                        }
+                    )
+                    count += 1
+        context.log.info(
+            f"Downloaded {count} photos for ZendeskID {row.Id} and Abcaseid {row.AbCaseId}."
+        )
+
+    photoDf = pd.DataFrame.from_records(df)
+
     photoDf.to_parquet(zpath, index=False)
-    new_line = "\n"
-    context.log.info(f"🚀 {count} photos {new_line}: {photoDf.to_markdown()} ")
+
     if len(photoDf) == 0:
-        yield Output(context.op_config["parent_dir"], "stop")
-    else:
-        yield Output(zpath, "proceed")
+        raise Failure("No photos retrieved")
+
+    return zpath
 
 
 @op(
@@ -561,8 +455,10 @@ def download_photos(context: OpExecutionContext, zpath: str):
     import truststore
 
     truststore.inject_into_ssl()
+
     df = pd.read_parquet(zpath)
-    for row in df.itertuples(index=False, name="Panda"):
+
+    for row in df.itertuples(index=False):
         with requests.get(row.PhotoUrl, stream=True) as r:
             with open(
                 f"{context.op_config['parent_dir']}/{row.PhotoFileName}", "wb"
@@ -593,7 +489,9 @@ def create_photo_records(context: OpExecutionContext, zpath: str):
             case "Success":
                 count_created += 1
             case "Missing":
-                context.log.warning(f"🚀 Not found record with caseid - {row.AbCaseId}. Did create abcasephoto record.")
+                context.log.warning(
+                    f"🚀 Not found record with caseid - {row.AbCaseId}. Did create abcasephoto record."
+                )
         cursor.close()
     context.log.info(
         f"🚀 {count_created} photo records created in Abandoned Autos database."
@@ -619,54 +517,46 @@ def create_photo_records(context: OpExecutionContext, zpath: str):
         description="The parent dir for removal to cleanup ",
     ),
 )
-def copy_photo_files(context: OpExecutionContext,  zpath: str):
+def copy_photo_files(context: OpExecutionContext, zpath: str):
     import shutil
 
     df = pd.read_parquet(zpath)
-    source_folder = Path(context.op_config["parent_dir"])
-    destination_folder = Path(context.op_config["destination_dir"])
 
-    def copyFile (photoFileName: str):
-         shutil.copy(source_folder / photoFileName, destination_folder)
-        
+    source_folder = Path(context.op_config["parent_dir"])
+
+    destination_folder = Path(context.op_config["destination_dir"])
+    destination_folder.mkdir(parents=True, exist_ok=True)
+
+    def copyFile(photoFileName: str):
+        shutil.copy(source_folder / photoFileName, destination_folder / photoFileName)
+
     df.PhotoFileName.apply(copyFile)
-    
+
     return context.op_config["parent_dir"]
+
+
+@failure_hook
+def remove_dir_on_failure(context: HookContext):
+    import shutil
+
+    path = Path(context.op_config["parent_dir"])
+
+    shutil.rmtree(path)
 
 
 @job(
     resource_defs={
         "io_manager": fs_io_manager,
         "sql_server": mssql_resource,
-    }
+    },
+    hooks={remove_dir_on_failure},
 )
 def process_zendesk_data():
-    files_deleted = list[str]
-
-    stop, proceed = fetch_reports()
-    # No data, just remove parent dir
-    files_deleted = remove_dir(stop)
-
-    # There is data, keep processing
-    stop, proceed = read_reports(proceed)
-    files_deleted = remove_dir(stop)
-
-    stop, proceed = write_reports(proceed)
-    # No new cases to process
-    files_deleted = remove_dir(stop)
-
-    # Proceed to check for photos for new cases
-    stop, proceed = get_photo_urls(proceed)
-    # No photos to process
-    files_deleted = remove_dir(stop)
-    # There is photos to download
-    zpath = download_photos(proceed)
+    path = download_photos(get_photo_urls(write_reports(read_reports(fetch_reports()))))
     # Create abcasephoto record
-    create_photo_records(zpath)
+    create_photo_records(path)
     # Move photos to abautos/images folder
-    files_deleted = remove_dir(
-        copy_photo_files(zpath)
-    )
+    remove_dir(copy_photo_files(path))
 
 
 @schedule(
