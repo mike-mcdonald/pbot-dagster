@@ -11,5 +11,6 @@ Switch ($Command) {
     default { $(throw "You must specify either 'dagit' or 'dagster.'") }
 }
 $Command = Join-Path $VirtualEnv "Scripts\$Command.exe"
+$Env:PYTHONDONTWRITEBYTECODE = 1
 Write-Host "Running '$Command'..."
 Invoke-Expression "$Command $Arguments"
