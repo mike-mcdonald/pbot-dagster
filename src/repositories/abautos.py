@@ -36,6 +36,7 @@ from pathlib import Path
 
 from ops.fs import remove_dir
 from ops.template import apply_substitutions
+from resources.fs import FileShareResource, fileshare_resource
 from resources.mssql import MSSqlServerResource, mssql_resource
 
 
@@ -516,19 +517,17 @@ def create_photo_records(context: OpExecutionContext, zpath: str):
         String,
         description="The parent dir for removal to cleanup ",
     ),
+    required_resource_keys=["photo_share"],
 )
 def copy_photo_files(context: OpExecutionContext, zpath: str):
-    import shutil
-
     df = pd.read_parquet(zpath)
+
+    share: FileShareResource = context.resources["photo_share"]
 
     source_folder = Path(context.op_config["parent_dir"])
 
-    destination_folder = Path(context.op_config["destination_dir"])
-    destination_folder.mkdir(parents=True, exist_ok=True)
-
     def copyFile(photoFileName: str):
-        shutil.copy(source_folder / photoFileName, destination_folder / photoFileName)
+        share.upload(source_folder / photoFileName, photoFileName)
 
     df.PhotoFileName.apply(copyFile)
 
@@ -548,6 +547,7 @@ def remove_dir_on_failure(context: HookContext):
     resource_defs={
         "io_manager": fs_io_manager,
         "sql_server": mssql_resource,
+        "photo_share": fileshare_resource,
     },
     hooks={remove_dir_on_failure},
 )
@@ -575,6 +575,11 @@ def zendesk_api_schedule(context: ScheduleEvaluationContext):
         run_key=execution_date,
         run_config={
             "resources": {
+                "photo_share": {
+                    "config": {
+                        "conn_id": "fs_abautos_photos",
+                    }
+                },
                 "sql_server": {
                     "config": {"mssql_server_conn_id": "mssql_server_abautos"}
                 },
