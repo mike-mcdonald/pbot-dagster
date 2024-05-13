@@ -60,6 +60,8 @@ def remove_files(context: OpExecutionContext, paths: list[str]):
     out=Out(List[String], "The paths removed or an empty array"),
 )
 def remove_dir(context: OpExecutionContext, path: str):
+    import shutil
+
     path = Path(path).resolve()
 
     if path.is_file():
@@ -77,5 +79,6 @@ def remove_dir(context: OpExecutionContext, path: str):
                 files.append(x)
 
     recursive(path)
+    shutil.rmtree(path)
 
-    return files
+    return [str(f) for f in files]
