@@ -87,8 +87,8 @@ def __op(
     with writerClass(str(local_path.resolve()), schema) as writer:
         while len(rows) > 0:
             arrays = []
-            for i, n in enumerate(schema.names):
-                if n not in exclusions:
+            for i, n in enumerate(cursor.description):
+                if n[0] not in exclusions:
                     arrays.append(pa.array([r[i] for r in rows]))
 
             batch = pa.RecordBatch.from_arrays(arrays, schema=schema)
