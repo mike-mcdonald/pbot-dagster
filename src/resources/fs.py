@@ -33,6 +33,8 @@ class FileShareResource(BaseResource):
         if self.client.login:
             args.append(f"/user:{self.client.login}")
 
+        return args
+
     def _open_share(self):
         import subprocess
 
