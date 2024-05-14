@@ -5,9 +5,10 @@ dagster
 dagster-graphql
 dagster-postgres
 dagster-azure
-sqlalchemy
-sqlalchemy_utils
 pandas
 pyarrow
 pycryptodome
 pyodbc
+sqlalchemy
+sqlalchemy_utils
+truststore
