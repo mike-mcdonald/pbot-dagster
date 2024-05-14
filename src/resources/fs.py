@@ -38,12 +38,12 @@ class FileShareResource(BaseResource):
     def _open_share(self):
         import subprocess
 
-        subprocess.run(*self.__args(), "/persistent:no")
+        subprocess.run([*self.__args(), "/persistent:no"])
 
     def _close_share(self):
         import subprocess
 
-        subprocess.run(*self.__args(), "/delete")
+        subprocess.run([*self.__args(), "/delete"])
 
     def upload(
         self,
