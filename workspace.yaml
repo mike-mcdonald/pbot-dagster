@@ -1,5 +1,8 @@
 load_from:
   - python_file:
+      relative_path: src\repositories\retentions.py
+      working_directory: src
+  - python_file:
       relative_path: src\repositories\abautos.py
       working_directory: src
   - python_file:
