@@ -1,22 +1,12 @@
-import json
-import pathlib
+from shutil import rmtree
 import numpy as np
-import os
 import pandas as pd
-import pyodbc
-import re
-import requests
-import textwrap
 
 from dagster import (
-    EnvVar,
     Field,
-    In,
     Int,
     OpExecutionContext,
     Out,
-    Output,
-    Permissive,
     RunRequest,
     ScheduleEvaluationContext,
     String,
@@ -28,13 +18,9 @@ from dagster import (
 )
 
 from datetime import datetime, timedelta
-from pathlib import Path
-
-from ops.fs import remove_dir
-from ops.fs.remove import remove_file
 from ops.template import apply_substitutions
 from resources.mssql import MSSqlServerResource, mssql_resource
-
+from pathlib import Path
 
 @op( required_resource_keys={"sql_server"},)
 def remove_database_data(context: OpExecutionContext, dataframe: pd.DataFrame):
@@ -51,17 +37,18 @@ def remove_database_data(context: OpExecutionContext, dataframe: pd.DataFrame):
         match results[0]:
             case "Success":
                 context.log.info(
-                    f"🚀 Delete successfully for ID - {row[0]}."
+                    f"🚀 Delete ID - {row[0]} successful."
                 )
                 count += 1
             case _  :
                 context.log.info(
-                    f"🚀 Failed deleting ID - {row['AffidavitId']}."
+                    f"🚀 Failed deleting ID - {row[0]}."
                 )
         cursor.close()
     context.log.info(
-        f"🚀 Remove_database_data {count} "
+        f"🚀 {count} AffidavitIds deleted "
     )
+
 
 @op(
     config_schema={
@@ -73,23 +60,55 @@ def remove_database_data(context: OpExecutionContext, dataframe: pd.DataFrame):
             String,
             description="Path to affidavit folders",
         ),
+        "pdf_path": Field(
+            String,
+            description="Path to pdf folder",
+        ),
     },
 )
 def remove_network_files(context: OpExecutionContext, dataframe: pd.DataFrame):
+
     df = dataframe
     diagrams_path = context.op_config["diagrams_path"]
     folders_path = context.op_config["folders_path"]
+    pdf_path = context.op_config["pdf_path"]
+    for row in df.itertuples(index=False, name=None):
+        file_path = Path(f"{diagrams_path}{row[1]}.vsdx")
+        if file_path.exists():
+            try:
+                file_path.unlink(missing_ok=True)
+            except Exception as err:
+                context.log.info(
+                    f"🚮 Error {err} while removing visio diagram {file_path}"
+                )
+        dir_path = Path(f"{folders_path}{row[0]}")
+        if dir_path.exists():
+            try:
+                rmtree(dir_path)
+            except OSError as err:
+                context.log.info(
+                    f" 🚮 Error: {err.filename} - {err.strerror}"
+                )
+        file_wildcard = f"{row[0]}*.pdf"
+        for p in Path(pdf_path).glob(file_wildcard):
+            context.log.info(
+                    f"🚮 for loop {p}"
+                    )
+            if p.exists():
+                try:
+                    p.unlink(missing_ok=True)
+                    context.log.info(
+                    f"🚮 Removing pdf files {p}"
+                    )
+                except Exception as err:
+                    context.log.info(
+                    f"🚮 Error {err} while removing pdf files {p}"
+                    )
     context.log.info(
-        f"🚀 Diagrams path {diagrams_path} "
+        f"🚮 Remove_network_files {df} "
     )
-    context.log.info(
-        f"🚀 Folders path {folders_path} "
-    )
-    df["AffidavitUID"].apply(lambda x: remove_file(f"{diagrams_path}{x}.vsdx"))
-    df["AffidavitId"].apply(lambda x: remove_dir(f"{folders_path}{x}"))
-    context.log.info(
-        f"🚀 Remove_network_files {df.head(5)} "
-    )
+
+
 @op(
     config_schema={
         "interval": Field(
@@ -103,14 +122,11 @@ def remove_network_files(context: OpExecutionContext, dataframe: pd.DataFrame):
 def get_removal_list(context: OpExecutionContext):
     conn: MSSqlServerResource = context.resources.sql_server
     interval = context.op_config["interval"]
-
     query = f"select s.AffidavitId, a.AffidavitUID from AffidavitStatus s left join Affidavit a on s.AffidavitID= a.AffidavitID where s.AffidavitStatus = 'RepairsComplete' and s.StatusDate <= DATEADD(year,{interval},GETDATE())"
-
     df = pd.read_sql(query, conn.get_connection())
-
     context.log.info( f"🚀 {len(df)} record ids found for removal.")
+    return(df)
 
-    return(df.head(50))
 
 @job(
     resource_defs={
@@ -122,6 +138,7 @@ def process_retention():
     df = get_removal_list()
     remove_database_data(df)
     remove_network_files(df)
+
 
 @schedule(
     job=process_retention,
@@ -142,13 +159,14 @@ def sidewalk_retention_schedule(context: ScheduleEvaluationContext):
             "ops": {
                 "get_removal_list": {
                     "config": {
-                        "interval": 5,
+                        "interval": -2,
                     },
                 },
                 "remove_network_files": {
                     "config": {
-                        "diagrams_path": f"//pbotfile/Apps/SidewalkPosting/Document/Diagrams/",
-                        "folders_path": f"//pbotfile/Apps/SidewalkPosting/Documents/AffidavitFolders/",
+                        "diagrams_path": f"//pbotfile1/apps/SidewalkPosting/Documents/TestRetention/Diagrams/",
+                        "folders_path": f"//pbotfile1/apps/SidewalkPosting/Documents/TestRetention/AffidavitFolders/",
+                        "pdf_path": f"//pbotfile1/apps/SidewalkPosting/Documents/TestRetention/PDF/",
                     },
                 },
             },
