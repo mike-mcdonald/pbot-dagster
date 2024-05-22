@@ -522,7 +522,7 @@ def create_photo_records(context: OpExecutionContext, zpath: str):
 def copy_photo_files(context: OpExecutionContext, zpath: str):
     df = pd.read_parquet(zpath)
 
-    share: FileShareResource = context.resources["photo_share"]
+    share: FileShareResource = context.resources.photo_share
 
     source_folder = Path(context.op_config["parent_dir"])
 
