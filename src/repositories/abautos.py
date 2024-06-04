@@ -87,7 +87,7 @@ def fetch_reports(context: OpExecutionContext):
 
     session = requests.Session()
 
-    def fetch(url: str, params: dict):
+    def fetch(url: str, params: dict = {}):
         res = session.get(
             url,
             headers={
@@ -111,7 +111,7 @@ def fetch_reports(context: OpExecutionContext):
 
     res = fetch(
         f"{context.op_config['zendesk_url']}/api/v2/search/export",
-        {
+        params={
             "page[size]": 1000,
             "filter[type]": "ticket",
             "query": f"group_id:18716157058327 ticket_form_id:17751920813847 created>={start_date.isoformat()} created<{end_date.isoformat()}",
@@ -249,17 +249,17 @@ def read_reports(context: OpExecutionContext, path: str):
 
     def create_description(fields: dict):
         camp = get_report_field(fields, "report_is_camp")
-        camp = f"Camp:{camp}" if camp is not None else None
+        camp = f"Camp:{camp}" if camp is not None else ""
 
         inoperables = " ".join(
-            get_report_field(fields, "report_vehicle_inoperable")
+            get_report_field(fields, "report_vehicle_inoperable") or []
         ).replace("'", "")
 
         private = get_report_field(fields, "report_location_is_private")
-        private = f"Private:{private}" if private is not None else None
+        private = f"Private:{private}" if private is not None else ""
 
         details = " ".join(
-            get_report_field(fields, "report_location:location_details")
+            get_report_field(fields, "report_location:location_details") or []
         ).replace("'", "")
 
         attrs = get_report_field(fields, "report_location:location_attributes").strip()
@@ -601,7 +601,7 @@ def zendesk_api_schedule(context: ScheduleEvaluationContext):
                 "read_reports": {
                     "config": {
                         "parent_dir": execution_date_path,
-                        "zpath": f"{EnvVar('DAGSTER_SHARE_BASEPATH').get_value()}{execution_date_path}/df.parquet",
+                        "zpath": f"{execution_date_path}/df.parquet",
                     },
                 },
                 "write_reports": {
