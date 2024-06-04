@@ -87,7 +87,7 @@ def fetch_reports(context: OpExecutionContext):
 
     session = requests.Session()
 
-    def fetch(url: str, params: dict):
+    def fetch(url: str, params: dict = {}):
         res = session.get(
             url,
             headers={
@@ -111,7 +111,7 @@ def fetch_reports(context: OpExecutionContext):
 
     res = fetch(
         f"{context.op_config['zendesk_url']}/api/v2/search/export",
-        {
+        params={
             "page[size]": 1000,
             "filter[type]": "ticket",
             "query": f"group_id:18716157058327 ticket_form_id:17751920813847 created>={start_date.isoformat()} created<{end_date.isoformat()}",
