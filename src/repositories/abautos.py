@@ -118,11 +118,11 @@ def fetch_reports(context: OpExecutionContext):
         },
     )
 
-    data = res.get("results", [])
+    data: list = res.get("results", [])
 
     while res.get("meta").get("has_more"):
         res = fetch(res.get("links").get("next"))
-        data.append(res.get("results", []))
+        data.extend(res.get("results", []))
 
     path = context.op_config["path"]
 
