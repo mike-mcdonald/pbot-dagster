@@ -249,17 +249,17 @@ def read_reports(context: OpExecutionContext, path: str):
 
     def create_description(fields: dict):
         camp = get_report_field(fields, "report_is_camp")
-        camp = f"Camp:{camp}" if camp is not None else None
+        camp = f"Camp:{camp}" if camp is not None else ""
 
         inoperables = " ".join(
-            get_report_field(fields, "report_vehicle_inoperable")
+            get_report_field(fields, "report_vehicle_inoperable") or []
         ).replace("'", "")
 
         private = get_report_field(fields, "report_location_is_private")
-        private = f"Private:{private}" if private is not None else None
+        private = f"Private:{private}" if private is not None else ""
 
         details = " ".join(
-            get_report_field(fields, "report_location:location_details")
+            get_report_field(fields, "report_location:location_details") or []
         ).replace("'", "")
 
         attrs = get_report_field(fields, "report_location:location_attributes").strip()
