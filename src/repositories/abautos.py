@@ -601,7 +601,7 @@ def zendesk_api_schedule(context: ScheduleEvaluationContext):
                 "read_reports": {
                     "config": {
                         "parent_dir": execution_date_path,
-                        "zpath": f"{EnvVar('DAGSTER_SHARE_BASEPATH').get_value()}{execution_date_path}/df.parquet",
+                        "zpath": f"{execution_date_path}/df.parquet",
                     },
                 },
                 "write_reports": {
