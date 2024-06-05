@@ -83,7 +83,7 @@ def fetch_reports(context: OpExecutionContext):
     truststore.inject_into_ssl()
 
     start_date = datetime.fromisoformat(context.op_config["scheduled_date"])
-    end_date = start_date + timedelta(minutes=int(context.op_config["interval"]))
+    end_date = start_date - timedelta(minutes=int(context.op_config["interval"]))
 
     session = requests.Session()
 
