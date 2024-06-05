@@ -181,6 +181,8 @@ def read_reports(context: OpExecutionContext, path: str):
         lambda x: get_zendesk_field(x, 14510509580823)
     )
 
+    df["Occupied"] = df["Occupied"].fillna(False)
+
     df["Occupied"] = np.select(
         condlist=[df["Occupied"] == True, df["Occupied"] == False],
         choicelist=["YES", "NO"],
@@ -258,9 +260,8 @@ def read_reports(context: OpExecutionContext, path: str):
         private = get_report_field(fields, "report_location_is_private")
         private = f"Private:{private}" if private is not None else ""
 
-        details = " ".join(
-            get_report_field(fields, "report_location:location_details") or []
-        ).replace("'", "")
+        details = get_report_field(fields, "report_location:location_details") or ""
+        details = details.replace("'", "")
 
         attrs = get_report_field(fields, "report_location:location_attributes").strip()
 
@@ -277,7 +278,7 @@ def read_reports(context: OpExecutionContext, path: str):
     df["Details"] = df.report_fields.map(create_description)
 
     def get_area(address: str):
-        m = re.match(r" [ENSW]{1,2} ", address)
+        m = re.search(r" [ENSW]{1,2} ", address)
         return "SE" if m is None else m.group().strip()
 
     df["Area"] = df["Address"].map(get_area)
