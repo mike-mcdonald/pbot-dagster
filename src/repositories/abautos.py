@@ -82,8 +82,8 @@ def fetch_reports(context: OpExecutionContext):
 
     truststore.inject_into_ssl()
 
-    start_date = datetime.fromisoformat(context.op_config["scheduled_date"])
-    end_date = start_date - timedelta(minutes=int(context.op_config["interval"]))
+    end_date = datetime.fromisoformat(context.op_config["scheduled_date"])
+    start_date = end_date - timedelta(minutes=int(context.op_config["interval"]))
 
     session = requests.Session()
 
@@ -589,7 +589,7 @@ def zendesk_api_schedule(context: ScheduleEvaluationContext):
                 "fetch_reports": {
                     "config": {
                         "interval": 5,
-                        "path": rf"{execution_date_path}\output.json",
+                        "path": rf"{execution_date_path}/output.json",
                         "parent_dir": execution_date_path,
                         "scheduled_date": execution_date,
                         "substitutions": {
@@ -602,7 +602,7 @@ def zendesk_api_schedule(context: ScheduleEvaluationContext):
                 "read_reports": {
                     "config": {
                         "parent_dir": execution_date_path,
-                        "zpath": rf"{execution_date_path}\df.parquet",
+                        "zpath": rf"{execution_date_path}/df.parquet",
                     },
                 },
                 "write_reports": {
