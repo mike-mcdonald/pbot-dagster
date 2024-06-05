@@ -568,7 +568,7 @@ def process_zendesk_data():
 def zendesk_api_schedule(context: ScheduleEvaluationContext):
     execution_date = context.scheduled_execution_time
 
-    execution_date_path = f"{EnvVar('DAGSTER_SHARE_BASEPATH').get_value()}{execution_date.strftime('%Y%m%dT%H%M%S')}"
+    execution_date_path = rf"{EnvVar('DAGSTER_SHARE_BASEPATH').get_value()}{execution_date.strftime('%Y%m%dT%H%M%S')}"
 
     execution_date = execution_date.isoformat()
 
@@ -589,7 +589,7 @@ def zendesk_api_schedule(context: ScheduleEvaluationContext):
                 "fetch_reports": {
                     "config": {
                         "interval": 5,
-                        "path": f"{execution_date_path}/output.json",
+                        "path": rf"{execution_date_path}\output.json",
                         "parent_dir": execution_date_path,
                         "scheduled_date": execution_date,
                         "substitutions": {
@@ -602,7 +602,7 @@ def zendesk_api_schedule(context: ScheduleEvaluationContext):
                 "read_reports": {
                     "config": {
                         "parent_dir": execution_date_path,
-                        "zpath": f"{execution_date_path}/df.parquet",
+                        "zpath": rf"{execution_date_path}\df.parquet",
                     },
                 },
                 "write_reports": {
@@ -622,7 +622,7 @@ def zendesk_api_schedule(context: ScheduleEvaluationContext):
                 },
                 "copy_photo_files": {
                     "config": {
-                        "destination_dir": f"{EnvVar('ABAUTOS_IMAGE_PATH').get_value()}",
+                        "destination_dir": rf"{EnvVar('ABAUTOS_IMAGE_PATH').get_value()}",
                         "parent_dir": execution_date_path,
                     },
                 },
