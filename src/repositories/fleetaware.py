@@ -1,256 +1,257 @@
-import json
-
 import os
+
+from datetime import datetime, timedelta, timezone
+
 import requests
-import webbrowser
+
+from msal import (
+    ConfidentialClientApplication,
+)
 
 from dagster import (
+    Array,
     EnvVar,
+    Failure,
     Field,
     In,
     List,
+    MetadataValue,
     OpExecutionContext,
     Out,
+    Permissive,
     RunRequest,
     ScheduleEvaluationContext,
+    SensorEvaluationContext,
+    SkipReason,
     String,
     fs_io_manager,
     job,
     op,
     repository,
     schedule,
+    sensor,
 )
 
-from datetime import datetime, timedelta, timezone
-from msal import ConfidentialClientApplication, PublicClientApplication, SerializableTokenCache
-from ops.template import apply_substitutions
-from pathlib import Path
+from resources.fs import FileShareResource, fileshare_resource
+
+
+def retrieve_token(
+    tenant_id: str, client_id: str, client_secret: str, scopes: list[str]
+):
+    import truststore
+
+    truststore.inject_into_ssl()
+
+    app = ConfidentialClientApplication(
+        client_id=client_id,
+        authority=f"https://login.microsoftonline.com/{tenant_id}",
+        client_credential=client_secret,
+    )
+
+    res = app.acquire_token_for_client(scopes=scopes)
+
+    if "access_token" not in res:
+        raise Exception("Received empty access token in response!")
+
+    return res["access_token"]
 
 
 @op(
     config_schema={
-        "fleetaware_app_id": Field(
+        "tenant_id": Field(
             String,
-            description="Application id from MS Asure registered app FLEETAWARE",
+            description="Azure tenant ID",
         ),
-          "fleetaware_authority": Field(
+        "client_id": Field(
             String,
-            description="Authority used for MS auth call",
+            description="Azure client ID",
         ),
-        "fleetaware_secretid": Field(
+        "client_secret": Field(
             String,
-            description="Client secret id from MS Asure registered app FLEETAWARE",
+            description="Client secret for Azure client",
         ),
-          "fleetaware_objectid": Field(
-            String,
-            description="App Object ID",
-        ),
+        "scopes": Field(Array(String), description="Scopes to request a token for"),
     },
     out=Out(str),
 )
 def get_token(context: OpExecutionContext):
-
-    import truststore
-    truststore.inject_into_ssl()
-
-    app_id= context.op_config["fleetaware_app_id"]
-    auth = context.op_config["fleetaware_authority"]
-    secret_id= context.op_config["fleetaware_secretid"]
-    object_id= context.op_config["fleetaware_objectid"]
-
-    config = {
-        "authority": auth,
-        "client_id": app_id,
-        "client_secret": secret_id,
-        "client_objectid": object_id,
-
-    }
-
-    app = ConfidentialClientApplication(
-    client_id=app_id,
-    authority=auth,
-    client_credential=secret_id,
+    return retrieve_token(
+        context.op_config["tenant_id"],
+        context.op_config["client_id"],
+        context.op_config["client_secret"],
+        context.op_config["scopes"],
     )
 
-    result = None
-    if not result:
-        result = app.acquire_token_for_client(
-            scopes=["https://graph.microsoft.com/.default"]
-    )
-
-    context.log.info(f"🛻 Access_token: {result['access_token']}")
-    if "access_token" in result:
-    # Get *this* application's application object from Microsoft Graph
-        response = requests.get(
-            f"https://graph.microsoft.com/v1.0/applications/{config['client_objectid']}",
-        headers={"Authorization": f'Bearer {result["access_token"]}'},
-         ).json()
-        context.log.info(f" Graph API call result: {json.dumps(response, indent=2)}")
-    else:
-        context.log.info(f" Error encountered when requesting access token: " f"{result.get('error')}")
-        context.log.info(f" result.get('error_description')")
-
-    return(result["access_token"] or None)
 
 @op(
     config_schema={
-        "fleetaware_user": Field(
+        "email_address": Field(
             String,
             description="User email for extraction",
         ),
-        "msgraph_api_endpoint": Field(
-            String,
-            description="MS Graph API endpoint",
+        "params": Field(
+            Permissive(),
+            description="Dictionary of parameters to pass to the list messages query.",
         ),
     },
-     ins={
+    ins={
         "token": In(str),
     },
     out=Out(List),
 )
 def get_emails(context: OpExecutionContext, token: str):
     import truststore
+
     truststore.inject_into_ssl()
-    user_email = context.op_config["fleetaware_user"]
-    msgraph_api_endpoint = context.op_config["msgraph_api_endpoint"]
-    context.log.info(f" Email: {user_email}")
-    headers = {
-    'Authorization': 'Bearer ' + token
-    }
 
-    # url=  f"{msgraph_api_endpoint}me/messages?$select=subject,sender&$filter=subject eq 'PBOT KERBY GARAGE STATUS FOR EXPORT'"
-    url=  f"{msgraph_api_endpoint}users/{user_email}/messages?$select=subject,sender&$filter=subject eq 'PBOT KERBY GARAGE STATUS FOR EXPORT'"
-    #?$search='+ 'subject:PBOT KERBY GARAGE STATUS FOR EXPORT "hasAttachments eq true"
-    filter_query = f"date(createdDateTime) eq {(datetime.now(timezone.utc) - timedelta(hours=2)).strftime('%Y-%m-%d')} "
+    context.run_id
 
-    params = {
-        "top": 10, # max is 1000 messages per request
-        "count": "true",
-        "select": "createdDateTime, HasAttachments, subject",
-        "filter": "subject eq 'PBOT KERBY GARAGE STATUS FOR EXPORT'",
-        #"search": "subject eq PBOT",
-        #"orderby": "createdDateTime DESC",
+    res = requests.get(
+        f"https://graph.microsoft.com/v1.0/users/{context.op_config['email_address']}/mailFolders/inbox/messages",
+        headers={"Authorization": f"Bearer {token}"},
+        params=context.op_config["params"],
+    )
 
-    }
+    if res.status_code != 200:
+        raise Failure(
+            description=f"Received error code {res.status_code}",
+            metadata={"response": MetadataValue.json(res.json())},
+        )
 
-    response = requests.get(msgraph_api_endpoint + 'users/' + user_email + '/mailFolders/inbox/messages/', headers=headers, params=params)
-    if response.status_code != 200:
-        raise Exception(response.json())
+    emails = res.json()["value"]
 
-    response_json = response.json()
-    response_json.keys()
+    if len(emails) == 0:
+        raise Failure(
+            description="Retrieved no emails!",
+        )
 
-    response_json['@odata.count']
-    emails = response_json['value']
-    context.log.info( f" Emails: {emails}")
-    return(emails)
+    return [e["id"] for e in emails]
 
 
 @op(
+    required_resource_keys={"fs_destination"},
     config_schema={
-        "fleetaware_path": Field(
-            String,
-            description="Fleetaware data folder for emailattachments",
-        ),
-        "fleetaware_user": Field(
+        "email_address": Field(
             String,
             description="User email for extraction",
-        ),
-        "msgraph_api_endpoint": Field(
-            String,
-            description="MS Graph API endpoint",
         ),
     },
     ins={
         "token": In(str),
-        "emails": In(List),
+        "emails": In(List, description="List of message IDs"),
     },
 )
-def download_attachments(context: OpExecutionContext, token: str, emails: List):
+def download_attachments(context: OpExecutionContext, token: str, emails: list):
     import truststore
+
     truststore.inject_into_ssl()
-    fleetaware_dir = context.op_config['fleetaware_path']
-    user_email = context.op_config['fleetaware_user']
-    msgraph_api_endpoint = context.op_config['msgraph_api_endpoint']
-    headers = {
-    'Authorization': 'Bearer ' + token
-    }
-    for email in emails:
-        if email['hasAttachments']:
-            email_id = email['id']
-            download_email_attachments(email_id, headers, fleetaware_dir)
 
+    share: FileShareResource = context.resources.fs_destination
 
-    def download_email_attachments(message_id, headers, fleetaware_dir):
-        try:
-            response = requests.get(
-                msgraph_api_endpoint + 'users/' + user_email + '/messages/{0}/attachments'.format(message_id),
-                headers=headers
+    headers = {"Authorization": f"Bearer {token}"}
+
+    for id in emails:
+        res = requests.get(
+            f"https://graph.microsoft.com/v1.0/users/{context.op_config['email_address']}/messages/{id}/attachments",
+            headers=headers,
+        )
+
+        for attachment in res.json()["value"]:
+            name = attachment["name"]
+            content = requests.get(
+                f"https://graph.microsoft.com/v1.0/users/{context.op_config['email_address']}/messages/{id}/attachments/{attachment['id']}/$value",
+                headers=headers,
             )
 
-            attachment_items = response.json()['value']
-            for attachment in attachment_items:
-                file_name = attachment['name']
-                attachment_id = attachment['id']
-                attachment_content = requests.get(
-                    msgraph_api_endpoint + 'users/' + user_email + '/messages/{0}/attachments/{1}/$value'.format(message_id, attachment_id)
-                )
-                context.log.info('Saving file {0}...'.format(file_name))
-                with open(os.path.join(fleetaware_dir, file_name), 'wb') as _f:
-                    _f.write(attachment_content.content)
-            return True
-        except Exception as e:
-            context.log.info(e)
-            return False
+            with open(os.path.join(share.client.host, name), "wb") as f:
+                f.write(content.content)
 
 
 @job(
     resource_defs={
         "io_manager": fs_io_manager,
+        "fs_destination": fileshare_resource,
     }
 )
-def process_emails():
+def process_fleetaware_emails():
     token = get_token()
-    download_attachments(token,get_emails(token))
+    download_attachments(token, get_emails(token))
 
 
-@schedule(
-    job=process_emails,
-    cron_schedule="*/30 * * * *",
-    execution_timezone="US/Pacific",
-)
-def fleetaware_schedule(context: ScheduleEvaluationContext):
-    execution_date = context.scheduled_execution_time
-    execution_date = execution_date.isoformat()
+@sensor(job=process_fleetaware_emails, minimum_interval_seconds=(60 * 5))
+def fleetaware_sensor(context: SensorEvaluationContext):
+    import truststore
+
+    truststore.inject_into_ssl()
+
+    token = retrieve_token(
+        os.getenv("AZURE_TENANT_ID"),
+        os.getenv("FLEETAWARE_APP_ID"),
+        os.getenv("FLEETAWARE_APP_SECRET"),
+        ["https://graph.microsoft.com/.default"],
+    )
+
+    dt = (
+        datetime.fromtimestamp(context.last_completion_time)
+        .astimezone(timezone.utc)
+        .strftime("%Y-%m-%dT%H:%M:%SZ")
+    )
+
+    res = requests.get(
+        f"https://graph.microsoft.com/v1.0/users/{os.getenv('FLEETAWARE_USER')}/mailFolders/inbox/messages",
+        headers={"Authorization": f"Bearer {token}"},
+        params={
+            "$filter": f"receivedDateTime ge {dt} and subject eq 'PBOT KERBY GARAGE STATUS FOR EXPORT' and hasAttachments eq true",
+        },
+    )
+
+    res.raise_for_status()
+
+    emails = res.json()["value"]
+
+    if len(emails) == 0:
+        return SkipReason("No FleetAware export emails found")
+
     return RunRequest(
-        run_key=execution_date,
+        run_key=dt,
         run_config={
-            "ops": {
-                 "get_token": {
+            "resources": {
+                "fs_destination": {
                     "config": {
-                        "fleetaware_app_id": EnvVar("FLEETAWARE_APP_ID").get_value(),
-                        "fleetaware_authority": EnvVar("FLEETAWARE_AUTHORITY").get_value(),
-                        "fleetaware_objectid": EnvVar("FLEETAWARE_APP_ID").get_value(),
-                        "fleetaware_secretid": EnvVar("FLEETAWARE_APP_ID").get_value(),
+                        "conn_id": "fs_fleetaware_exports",
+                    }
+                },
+            },
+            "ops": {
+                "get_token": {
+                    "config": {
+                        "tenant_id": EnvVar("AZURE_TENANT_ID").get_value(),
+                        "client_id": EnvVar("FLEETAWARE_APP_ID").get_value(),
+                        "client_secret": EnvVar("FLEETAWARE_APP_SECRET").get_value(),
+                        "scopes": ["https://graph.microsoft.com/.default"],
                     },
                 },
                 "get_emails": {
                     "config": {
-                        "fleetaware_user": EnvVar("FLEETAWARE_USER").get_value(),
-                        "msgraph_api_endpoint": EnvVar("MSGRAPH_API_ENDPOINT").get_value(),
+                        "email_address": EnvVar("FLEETAWARE_USER").get_value(),
+                        "params": {
+                            "$select": "receivedDateTime, hasAttachments, subject",
+                            "$filter": f"receivedDateTime ge {dt} and subject eq 'PBOT KERBY GARAGE STATUS FOR EXPORT' and hasAttachments eq true",
+                            "$orderby": "receivedDateTime DESC",
+                            "$top": 1,
+                        },
                     },
                 },
                 "download_attachments": {
                     "config": {
-                        "fleetaware_path": f"//pbotdm2/FleetAware Maximo Data Export/Test/",
-                        "fleetaware_user": EnvVar("FLEETAWARE_USER").get_value(),
-                        "msgraph_api_endpoint": EnvVar("MSGRAPH_API_ENDPOINT").get_value(),
+                        "email_address": EnvVar("FLEETAWARE_USER").get_value(),
                     },
                 },
             },
-        }
+        },
     )
+
 
 @repository
 def fleetaware_repository():
-    return [process_emails,fleetaware_schedule]
+    return [process_fleetaware_emails, fleetaware_sensor]
