@@ -1,9 +1,18 @@
 from pathlib import Path
 
-from dagster import Bool, Field, List, In, Nothing, OpExecutionContext, Out, String, op
+from dagster import (
+    Bool,
+    Failure,
+    Field,
+    In,
+    Nothing,
+    OpExecutionContext,
+    String,
+    op,
+)
 
 
-def __remove(path: str):
+def __remove(path: str) -> str:
     path: Path = Path(path).resolve()
 
     if path.is_dir():
@@ -14,30 +23,23 @@ def __remove(path: str):
     return str(path)
 
 
-@op(
-    ins={"path": In(String, "The path to remove")},
-    out=Out(String, "The path removed even if nothing was found"),
-)
-def remove_file(_, path: str):
+@op
+def remove_file(_, path: str) -> str:
     return __remove(path)
 
 
 @op(
     config_schema={"path": Field(String, "The path to remove")},
     ins={"nonce": In(Nothing, "Dummy input to allow scheduling")},
-    out=Out(String, "The path removed even if nothing was found"),
 )
 def remove_file_config(
     context: OpExecutionContext,
-):
+) -> str:
     return __remove(context.op_config["path"])
 
 
-@op(
-    ins={"paths": In(List[String], "The paths to remove")},
-    out=Out(List[String], "The paths removed"),
-)
-def remove_files(context: OpExecutionContext, paths: list[str]):
+@op
+def remove_files(context: OpExecutionContext, paths: list[str]) -> list[str]:
     removed = []
 
     for path in paths:
@@ -50,35 +52,51 @@ def remove_files(context: OpExecutionContext, paths: list[str]):
     return removed
 
 
+def __remove_dir(path: Path, recursive: bool):
+    path = Path(path).resolve()
+
+    if path.is_file():
+        raise Failure(f"'{path}' is a file! Use `remove_file` instead.")
+
+    files: list[Path] = []
+
+    def recursive(p: Path):
+        for x in p.iterdir():
+            if x.is_dir():
+                if recursive:
+                    recursive(p / x.name)
+                    x.rmdir()
+            else:
+                x.unlink(missing_ok=True)
+                files.append(x)
+
+    recursive(path)
+
+    return [str(f.resolve()) for f in files]
+
+
 @op(
     config_schema={
         "recursive": Field(
             Bool, description="Whether to traverse sub directories", default_value=False
         )
     },
-    ins={"path": In(String)},
-    out=Out(List[String], "The paths removed or an empty array"),
 )
-def remove_dir(context: OpExecutionContext, path: str):
-    import shutil
+def remove_dir(context: OpExecutionContext, path: str) -> list[str]:
+    return __remove_dir(path, context.op_config["recursive"])
 
-    path = Path(path).resolve()
 
-    if path.is_file():
-        raise ValueError(f"'{path}' is a file! Use `remove_file` instead.")
-
+@op(
+    config_schema={
+        "recursive": Field(
+            Bool, description="Whether to traverse sub directories", default_value=False
+        )
+    },
+)
+def remove_dirs(context: OpExecutionContext, paths: list[str]) -> list[str]:
     files = []
 
-    def recursive(p: Path):
-        for x in p.iterdir():
-            if x.is_dir():
-                if context.op_config["recursive"]:
-                    recursive(p / x.name)
-            else:
-                x.unlink(missing_ok=True)
-                files.append(x)
+    for path in paths:
+        files.extend(__remove_dir(path, context.op_config["recursive"]))
 
-    recursive(path)
-    shutil.rmtree(path)
-
-    return [str(f) for f in files]
+    return files
