@@ -100,7 +100,9 @@ def remove_database_data(
     context.log.info(
         f"🗑️ {len(successes)} AffidavitIDs were deleted and will have their files removed."
     )
-    context.log.warning(f"⚠️ {len(failures)} AffidavitIDs failed deletion.")
+    context.log.warning(
+        f"⚠️ {len(failures)} AffidavitIDs failed deletion. The Affidavits that "
+    )
 
     return successes, failures
 
@@ -180,7 +182,7 @@ def process_retention():
 
 @schedule(
     job=process_retention,
-    cron_schedule="* * * * 7",
+    cron_schedule="59 23 * * 0",
     execution_timezone="US/Pacific",
 )
 def sidewalk_retention_schedule(context: ScheduleEvaluationContext):
