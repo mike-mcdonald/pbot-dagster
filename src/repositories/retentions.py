@@ -5,7 +5,6 @@ from dagster import (
     Any,
     Failure,
     Field,
-    In,
     Int,
     List,
     OpExecutionContext,
@@ -22,6 +21,7 @@ from dagster import (
 from ops.fs.remove import remove_dirs, remove_files
 from resources.fs import FileShareResource, fileshare_resource
 from resources.mssql import MSSqlServerResource, mssql_resource
+from pathlib import Path
 
 
 @op(
