@@ -1,6 +1,7 @@
 import re
 
 from typing import (
+    Generator,
     List as PyList,
 )
 
@@ -90,7 +91,7 @@ def get_table_names(context: OpExecutionContext) -> PyList[str]:
     out=DynamicOut(String, description="The names of tables in the specifed schema"),
     required_resource_keys={"sql_server"},
 )
-def get_table_names_dynamic(context: OpExecutionContext) -> PyList[str]:
+def get_table_names_dynamic(context: OpExecutionContext):
     schema = context.op_config["schema"]
 
     for name in __get_table_names(context):

@@ -1,25 +1,16 @@
-import json
-import pathlib
-import numpy as np
-import os
-import pandas as pd
-import pyodbc
-import re
-import requests
-import textwrap
+from pathlib import Path
+from typing import Callable, Tuple
 
 from dagster import (
-    EnvVar,
+    Any,
+    Failure,
     Field,
-    In,
     Int,
+    List,
     OpExecutionContext,
     Out,
-    Output,
-    Permissive,
     RunRequest,
     ScheduleEvaluationContext,
-    String,
     fs_io_manager,
     job,
     op,
@@ -27,69 +18,12 @@ from dagster import (
     schedule,
 )
 
-from datetime import datetime, timedelta
+from ops.fs.remove import remove_dirs, remove_files
+from resources.fs import FileShareResource, fileshare_resource
+from resources.mssql import MSSqlServerResource, mssql_resource
 from pathlib import Path
 
-from ops.fs import remove_dir
-from ops.fs.remove import remove_file
-from ops.template import apply_substitutions
-from resources.mssql import MSSqlServerResource, mssql_resource
 
-
-@op( required_resource_keys={"sql_server"},)
-def remove_database_data(context: OpExecutionContext, dataframe: pd.DataFrame):
-    df = dataframe
-    count = 0
-    conn: MSSqlServerResource = context.resources.sql_server
-    for row in df.itertuples(index=False, name=None):
-        cursor = conn.execute(
-            context, "Exec sp_retention ?", row[0]
-        )
-        results = cursor.fetchone()
-        if results is None:
-            raise Exception
-        match results[0]:
-            case "Success":
-                context.log.info(
-                    f"🚀 Delete successfully for ID - {row[0]}."
-                )
-                count += 1
-            case _  :
-                context.log.info(
-                    f"🚀 Failed deleting ID - {row['AffidavitId']}."
-                )
-        cursor.close()
-    context.log.info(
-        f"🚀 Remove_database_data {count} "
-    )
-
-@op(
-    config_schema={
-        "diagrams_path": Field(
-            String,
-            description="Path to visio diagrams",
-        ),
-        "folders_path": Field(
-            String,
-            description="Path to affidavit folders",
-        ),
-    },
-)
-def remove_network_files(context: OpExecutionContext, dataframe: pd.DataFrame):
-    df = dataframe
-    diagrams_path = context.op_config["diagrams_path"]
-    folders_path = context.op_config["folders_path"]
-    context.log.info(
-        f"🚀 Diagrams path {diagrams_path} "
-    )
-    context.log.info(
-        f"🚀 Folders path {folders_path} "
-    )
-    df["AffidavitUID"].apply(lambda x: remove_file(f"{diagrams_path}{x}.vsdx"))
-    df["AffidavitId"].apply(lambda x: remove_dir(f"{folders_path}{x}"))
-    context.log.info(
-        f"🚀 Remove_network_files {df.head(5)} "
-    )
 @op(
     config_schema={
         "interval": Field(
@@ -97,31 +31,152 @@ def remove_network_files(context: OpExecutionContext, dataframe: pd.DataFrame):
             description="Number of years to return date. Should be NEGATIVE number",
         ),
     },
-    out=Out(pd.DataFrame),
     required_resource_keys={"sql_server"},
 )
-def get_removal_list(context: OpExecutionContext):
-    conn: MSSqlServerResource = context.resources.sql_server
+def get_removal_list(context: OpExecutionContext) -> list[dict]:
     interval = context.op_config["interval"]
 
-    query = f"select s.AffidavitId, a.AffidavitUID from AffidavitStatus s left join Affidavit a on s.AffidavitID= a.AffidavitID where s.AffidavitStatus = 'RepairsComplete' and s.StatusDate <= DATEADD(year,{interval},GETDATE())"
+    if int(interval) > 0:
+        raise Failure("Value for interval config must be a negative number")
 
-    df = pd.read_sql(query, conn.get_connection())
+    conn: MSSqlServerResource = context.resources.sql_server
 
-    context.log.info( f"🚀 {len(df)} record ids found for removal.")
+    query = f"""
+    select
+        s.AffidavitId as id,
+        a.AffidavitUID as uid
+    from
+        AffidavitStatus s
+    left join
+        Affidavit a on s.AffidavitID = a.AffidavitID
+    where
+        s.AffidavitStatus = 'RepairsComplete'
+    and
+        s.StatusDate <= DATEADD(year, ?, GETDATE())"""
 
-    return(df.head(50))
+    result = []
+
+    for row in conn.execute(context, query, interval).fetchall():
+        result.append({"id": row.id, "uid": row.uid})
+
+    if len(result) == 0:
+        raise Failure("No records found for deletion")
+
+    context.log.info(f"🚀 {len(result)} record ids found for removal.")
+
+    return result
+
+
+@op(
+    required_resource_keys={"sql_server"},
+    out={"successes": Out(List), "failures": Out(List)},
+)
+def remove_database_data(
+    context: OpExecutionContext,
+    records: list[dict],
+) -> Tuple[list[dict], list[dict]]:
+    conn: MSSqlServerResource = context.resources.sql_server
+
+    for row in records:
+        id = row["id"]
+        cursor = conn.execute(context, "exec sp_retention ?", id)
+
+        results = cursor.fetchone()
+
+        successes = []
+        failures = []
+
+        if results is None:
+            raise Failure("No records found that exceed retention period.")
+
+        match results[0]:
+            case "Success":
+                successes.append(row)
+            case _:
+                failures.append(row)
+
+        cursor.close()
+
+    context.log.info(
+        f"🗑️ {len(successes)} AffidavitIDs were deleted and will have their files removed."
+    )
+    context.log.warning(f"⚠️ {len(failures)} AffidavitIDs failed deletion.")
+
+    return successes, failures
+
+
+def find_files_op_factory(
+    name: str,
+    resolver: Callable,
+    **kwargs,
+):
+
+    @op(
+        name=name,
+        required_resource_keys={"fs_sidewalk_posting"},
+    )
+    def _inner_op(context: OpExecutionContext, affidavits: list[dict], **kwargs):
+        fs: FileShareResource = context.resources.fs_sidewalk_posting
+
+        files = []
+
+        for affidavit in affidavits:
+            resolver(fs, files, affidavit)
+
+        context.log.info(f"Found {len(files)} for deletion")
+
+        return files
+
+    return _inner_op
+
+
+def find_diagrams_inner(fs: FileShareResource, affidavit: dict, files: list):
+    path = Path(fs.client.host) / "Diagrams" / f"{affidavit['uid']}.vsdx"
+
+    if path.exists():
+        files.append(path.resolve())
+
+
+find_diagrams = find_files_op_factory("find_diagrams", find_diagrams_inner)
+
+
+def find_pdfs_inner(fs: FileShareResource, affidavit: dict, files: list):
+    path = Path(fs.client.host) / "PDF"
+
+    for p in Path(path).glob(f"{affidavit['id']}*.pdf"):
+        if p.exists():
+            files.append(p.resolve())
+
+
+find_pdfs = find_files_op_factory("find_pdfs", find_pdfs_inner)
+
+
+def find_folders_inner(fs: FileShareResource, affidavit: dict, files: list):
+    path: Path = Path(fs.client.host) / "AffidavitFolders" / affidavit["id"]
+
+    if path.exists() and path.is_dir():
+        files.append(path.resolve())
+
+
+find_folders = find_files_op_factory("find_folders", find_folders_inner)
+
 
 @job(
     resource_defs={
         "io_manager": fs_io_manager,
         "sql_server": mssql_resource,
+        "fs_sidewalk_posting": fileshare_resource,
     }
 )
 def process_retention():
-    df = get_removal_list()
-    remove_database_data(df)
-    remove_network_files(df)
+    affidavits = get_removal_list()
+
+    successes, failures = remove_database_data(affidavits)
+
+    remove_files.alias("remove_diagrams")(find_diagrams(successes))
+    remove_files.alias("remove_pdfs")(find_pdfs(successes))
+    remove_dirs.alias("remove_folders")(find_folders(successes))
+
 
 @schedule(
     job=process_retention,
@@ -129,33 +184,29 @@ def process_retention():
     execution_timezone="US/Pacific",
 )
 def sidewalk_retention_schedule(context: ScheduleEvaluationContext):
-    execution_date = context.scheduled_execution_time
-    execution_date = execution_date.isoformat()
     return RunRequest(
-        run_key=execution_date,
+        run_key=context.scheduled_execution_time.isoformat(),
         run_config={
             "resources": {
                 "sql_server": {
                     "config": {"mssql_server_conn_id": "mssql_server_sidewalk"}
                 },
+                "fs_sidewalk_posting": {"config": {"conn_id": "fs_sidewalk_posting"}},
             },
             "ops": {
                 "get_removal_list": {
                     "config": {
-                        "interval": 5,
+                        "interval": -2,
                     },
                 },
-                "remove_network_files": {
-                    "config": {
-                        "diagrams_path": f"//pbotfile/Apps/SidewalkPosting/Document/Diagrams/",
-                        "folders_path": f"//pbotfile/Apps/SidewalkPosting/Documents/AffidavitFolders/",
-                    },
+                "remove_folders": {
+                    "config": {"recursive": True},
                 },
             },
-        }
+        },
     )
 
 
 @repository
 def retention_repository():
-    return [process_retention,sidewalk_retention_schedule]
+    return [process_retention, sidewalk_retention_schedule]
