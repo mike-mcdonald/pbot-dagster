@@ -119,7 +119,7 @@ def find_files_op_factory(
         files = []
 
         for affidavit in affidavits:
-            resolver(fs, files, affidavit)
+            resolver(fs, affidavit, files)
 
         context.log.info(f"Found {len(files)} for deletion")
 
