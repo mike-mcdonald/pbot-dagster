@@ -81,19 +81,19 @@ def remove_database_data(
     failures = []
 
     for row in records:
-        id = row["id"]
+        cursor = conn.execute(context, "exec sp_retention ?", row["id"])
+        results = cursor.fetchone()
 
-        with conn.execute(context, "exec sp_retention ?", id) as cursor:
-            results = cursor.fetchone()
+        if results is None:
+            raise Failure("No records found that exceed retention period.")
 
-            if results is None:
-                raise Failure("No records found that exceed retention period.")
+        match results[0]:
+            case "Success":
+                successes.append(row)
+            case _:
+                failures.append(dict(**row, message=results[0]))
 
-            match results[0]:
-                case "Success":
-                    successes.append(row)
-                case _:
-                    failures.append(dict(**row, message=results[0]))
+        cursor.close()
 
     context.log.info(
         f"🗑️ {len(successes)} AffidavitIDs were deleted and will have their files removed."
