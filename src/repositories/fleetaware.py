@@ -163,7 +163,10 @@ def download_attachments(context: OpExecutionContext, token: str, emails: list):
                 headers=headers,
             )
 
-            with open(os.path.join(share.client.host, name), "wb") as f:
+            path = os.path.join(share.client.host, name)
+            os.remove(path)
+
+            with open(path, "xb") as f:
                 f.write(content.content)
 
 
