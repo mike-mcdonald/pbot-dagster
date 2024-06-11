@@ -167,6 +167,8 @@ def log_failed_deletions(context: OpExecutionContext, records: list[dict]):
             f"AffidavitID: {record['id']}, AffidavitUID: {record['uid']}, Error: {record['message']}"
         )
 
+    raise Failure("There were affidavits that failed to be deleted.")
+
 
 @job(
     resource_defs={
