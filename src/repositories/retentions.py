@@ -77,32 +77,28 @@ def remove_database_data(
 ) -> Tuple[list[dict], list[dict]]:
     conn: MSSqlServerResource = context.resources.sql_server
 
+    successes = []
+    failures = []
+
     for row in records:
         id = row["id"]
-        cursor = conn.execute(context, "exec sp_retention ?", id)
 
-        results = cursor.fetchone()
+        with conn.execute(context, "exec sp_retention ?", id) as cursor:
+            results = cursor.fetchone()
 
-        successes = []
-        failures = []
+            if results is None:
+                raise Failure("No records found that exceed retention period.")
 
-        if results is None:
-            raise Failure("No records found that exceed retention period.")
-
-        match results[0]:
-            case "Success":
-                successes.append(row)
-            case _:
-                failures.append(row)
-
-        cursor.close()
+            match results[0]:
+                case "Success":
+                    successes.append(row)
+                case _:
+                    failures.append(dict(**row, message=results[0]))
 
     context.log.info(
         f"🗑️ {len(successes)} AffidavitIDs were deleted and will have their files removed."
     )
-    context.log.warning(
-        f"⚠️ {len(failures)} AffidavitIDs failed deletion. The Affidavits that "
-    )
+    context.log.warning(f"⚠️ {len(failures)} AffidavitIDs failed deletion.")
 
     return successes, failures
 
@@ -163,6 +159,15 @@ def find_folders_inner(fs: FileShareResource, affidavit: dict, files: list):
 find_folders = find_files_op_factory("find_folders", find_folders_inner)
 
 
+@op
+def log_failed_deletions(context: OpExecutionContext, records: list[dict]):
+    context.log.error("Printing Affidavit IDs for records that failed deletion...")
+    for record in records:
+        context.log.error(
+            f"AffidavitID: {record['id']}, AffidavitUID: {record['uid']}, Error: {record['message']}"
+        )
+
+
 @job(
     resource_defs={
         "io_manager": fs_io_manager,
@@ -178,6 +183,8 @@ def process_retention():
     remove_files.alias("remove_diagrams")(find_diagrams(successes))
     remove_files.alias("remove_pdfs")(find_pdfs(successes))
     remove_dirs.alias("remove_folders")(find_folders(successes))
+
+    log_failed_deletions(failures)
 
 
 @schedule(
