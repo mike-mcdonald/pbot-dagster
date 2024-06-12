@@ -150,7 +150,7 @@ find_pdfs = find_files_op_factory("find_pdfs", find_pdfs_inner)
 
 
 def find_folders_inner(fs: FileShareResource, affidavit: dict, files: list):
-    path: Path = Path(fs.client.host) / "AffidavitFolders" / affidavit["id"]
+    path: Path = Path(fs.client.host) / "AffidavitFolders" / str(affidavit["id"])
 
     if path.exists() and path.is_dir():
         files.append(path.resolve())
