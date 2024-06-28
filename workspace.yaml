@@ -21,11 +21,11 @@ load_from:
       relative_path: src/repositories/pfht_to_twilight.py
       working_directory: src
   - python_file:
-      relative_path: src/repositories/tsup_to_twilight.py
-      working_directory: src
-  - python_file:
       relative_path: src/repositories/amanda_to_twilight.py
       working_directory: src
   - python_file:
       relative_path: src/repositories/elavon_to_twilight.py
+      working_directory: src
+  - python_file:
+      relative_path: src/repositories/enforcement/enforcement.py
       working_directory: src
