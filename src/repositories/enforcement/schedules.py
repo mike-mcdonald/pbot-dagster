@@ -37,7 +37,7 @@ def parking_citations_to_featureclass(context: ScheduleEvaluationContext):
                 },
                 "append_features": {
                     "config": {
-                        "feature_class": "AGS_MAINT_PBOT.PBOT_ADMIN.ParkingCitation_TEST"
+                        "feature_class": "AGS_MAINT_PBOT.PBOT_ADMIN.ParkingCitation"
                     }
                 },
             },
