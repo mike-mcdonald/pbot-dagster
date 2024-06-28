@@ -12,18 +12,18 @@ from resources.base import BaseResource
 class MSSqlServerResource(BaseResource):
     def __init__(
         self,
-        sql_server_conn_id="sql_server",
+        conn_id="sql_server",
     ):
-        self.sql_server_conn_id = sql_server_conn_id
-        self.client = self.get_connection()
+        self.conn_id = conn_id
+        self.client = self.get_client()
 
-    def get_connection(self) -> pyodbc.Connection:
+    def get_client(self) -> pyodbc.Connection:
         """
         Authenticates the resource using the connection id passed during init.
 
         :return: the authenticated client.
         """
-        connection = super().get_connection(self.sql_server_conn_id)
+        connection = super().get_connection(self.conn_id)
 
         connection_args = [
             f"SERVER={connection.host}",
@@ -35,10 +35,12 @@ class MSSqlServerResource(BaseResource):
 
         # If we have login/password in the connection object use that,
         # otherwise assume it is using Windows authentication
-        connection_args.extend(
-            [f"UID={connection.login}", f"PWD={connection.password}"]
-        ) if connection.login is not None else connection_args.append(
-            "Trusted_Connection=yes"
+        (
+            connection_args.extend(
+                [f"UID={connection.login}", f"PWD={connection.password}"]
+            )
+            if connection.login is not None
+            else connection_args.append("Trusted_Connection=yes")
         )
 
         for key, value in connection.extra_dejson.items():
@@ -72,12 +74,10 @@ class MSSqlServerResource(BaseResource):
         return self.client.execute(sql, *params)
 
 
-@resource(config_schema={"mssql_server_conn_id": str})
+@resource(config_schema={"conn_id": str})
 @contextmanager
 def mssql_resource(init_context):
-    conn = MSSqlServerResource(
-        sql_server_conn_id=init_context.resource_config["mssql_server_conn_id"]
-    )
+    conn = MSSqlServerResource(conn_id=init_context.resource_config["conn_id"])
     try:
         yield conn
     finally:

@@ -581,9 +581,7 @@ def zendesk_api_schedule(context: ScheduleEvaluationContext):
                         "conn_id": "fs_abautos_photos",
                     }
                 },
-                "sql_server": {
-                    "config": {"mssql_server_conn_id": "mssql_server_abautos"}
-                },
+                "sql_server": {"config": {"conn_id": "mssql_server_abautos"}},
             },
             "ops": {
                 "fetch_reports": {

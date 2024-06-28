@@ -14,9 +14,9 @@ class FileShareResource(BaseResource):
         conn_id="fs_default",
     ):
         self.conn_id = conn_id
-        self.client = self.get_connection()
+        self.client = self.get_client()
 
-    def get_connection(self):
+    def get_client(self):
         """
         Authenticates the resource using the connection id passed during init.
 

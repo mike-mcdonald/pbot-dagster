@@ -177,9 +177,7 @@ def sign_library_schedule(context: ScheduleEvaluationContext):
         run_key=execution_date,
         run_config={
             "resources": {
-                "sql_server": {
-                    "config": {"mssql_server_conn_id": "mssql_server_assets"}
-                },
+                "sql_server": {"config": {"conn_id": "mssql_server_assets"}},
             },
             "ops": {
                 "signs_to_file": {

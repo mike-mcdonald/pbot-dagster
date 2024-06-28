@@ -48,12 +48,10 @@ def amanda_schedule(context: ScheduleEvaluationContext):
             "resources": {
                 "adls2_resource": {
                     "config": {
-                        "azure_data_lake_gen2_conn_id": "azure_data_lake_gen2",
+                        "conn_id": "azure_data_lake_gen2",
                     }
                 },
-                "sql_server": {
-                    "config": {"mssql_server_conn_id": "mssql_server_amanda"}
-                },
+                "sql_server": {"config": {"conn_id": "mssql_server_amanda"}},
             },
             "ops": {
                 "get_table_names_dynamic": {

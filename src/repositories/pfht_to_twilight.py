@@ -39,7 +39,7 @@ def pfht_schedule(context: ScheduleEvaluationContext):
             "resources": {
                 "adls2_resource": {
                     "config": {
-                        "azure_data_lake_gen2_conn_id": "azure_data_lake_gen2",
+                        "conn_id": "azure_data_lake_gen2",
                     }
                 }
             },

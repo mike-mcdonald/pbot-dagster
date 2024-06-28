@@ -199,9 +199,7 @@ def sidewalk_retention_schedule(context: ScheduleEvaluationContext):
         run_key=context.scheduled_execution_time.isoformat(),
         run_config={
             "resources": {
-                "sql_server": {
-                    "config": {"mssql_server_conn_id": "mssql_server_sidewalk"}
-                },
+                "sql_server": {"config": {"conn_id": "mssql_server_sidewalk"}},
                 "fs_sidewalk_posting": {"config": {"conn_id": "fs_sidewalk_posting"}},
             },
             "ops": {
