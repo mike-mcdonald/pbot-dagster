@@ -485,15 +485,18 @@ def create_photo_records(context: OpExecutionContext, zpath: str):
             context, "Exec sp_CreateAbCasePhotoZ ?, ? ", row.AbCaseId, row.PhotoFileName
         )
         results = cursor.fetchone()
+
         if results is None:
             raise Exception
-        match results[1]:
-            case "Success":
-                count_created += 1
-            case "Missing":
-                context.log.warning(
-                    f"🚀 Not found record with caseid - {row.AbCaseId}. Did create abcasephoto record."
-                )
+        status = results[1]
+
+        if status == "Success":
+            count_created += 1
+        elif status == "Missing":
+            context.log.warning(
+                f"🚀 Not found record with caseid - {row.AbCaseId}. Did create abcasephoto record."
+            )
+
         cursor.close()
     context.log.info(
         f"🚀 {count_created} photo records created in Abandoned Autos database."
