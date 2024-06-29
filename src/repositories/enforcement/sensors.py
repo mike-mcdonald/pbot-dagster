@@ -1,13 +1,15 @@
 import os
 
-from dagster import schedule, RunRequest, ScheduleEvaluationContext, SkipReason
+from datetime import datetime
+
+from dagster import sensor, RunRequest, SensorEvaluationContext, SkipReason
 
 from models.connection import get_connection
 from repositories.enforcement.unregistered_vehicles import process_politess_exports
 
 
-@schedule(cron_schedule="*/15 * * * *", job=process_politess_exports)
-def parking_citations_to_featureclass(context: ScheduleEvaluationContext):
+@sensor(job=process_politess_exports, minimum_interval_seconds=(60 * 15))
+def politess_sensor():
     fs = get_connection("fs_politess_import")
 
     files = os.listdir(fs.host)
@@ -15,8 +17,10 @@ def parking_citations_to_featureclass(context: ScheduleEvaluationContext):
     if len(files) == 0:
         return SkipReason("No files found in import directory")
 
+    now = datetime.now()
+
     return RunRequest(
-        run_key=context.scheduled_execution_time.strftime(r"%Y%m%dT%H%M%S"),
+        run_key=now.strftime(r"%Y%m%dT%H%M%S"),
         run_config={
             "resources": {
                 "geodatabase": {"config": {"conn_id": "mssql_ags_pbot"}},
@@ -27,11 +31,7 @@ def parking_citations_to_featureclass(context: ScheduleEvaluationContext):
                     "config": {
                         "output": os.path.join(
                             fs.host,
-                            "{}.parquet".format(
-                                context.scheduled_execution_time.strftime(
-                                    r"%Y%m%dT%H%M%S"
-                                )
-                            ),
+                            "{}.parquet".format(now.strftime(r"%Y%m%dT%H%M%S")),
                         )
                     }
                 },
