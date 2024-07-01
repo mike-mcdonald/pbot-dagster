@@ -1,5 +1,8 @@
 load_from:
   - python_file:
+      relative_path: src\repositories\pdfanalyzer.py
+      working_directory: src
+  - python_file:
       relative_path: src\repositories\fleetaware.py
       working_directory: src
   - python_file:
