@@ -38,10 +38,6 @@ from resources.fs import FileShareResource, fileshare_resource
 def retrieve_token(
     tenant_id: str, client_id: str, client_secret: str, scopes: list[str]
 ):
-    import truststore
-
-    truststore.inject_into_ssl()
-
     app = ConfidentialClientApplication(
         client_id=client_id,
         authority=f"https://login.microsoftonline.com/{tenant_id}",
@@ -100,12 +96,6 @@ def get_token(context: OpExecutionContext):
     out=Out(List),
 )
 def get_emails(context: OpExecutionContext, token: str):
-    import truststore
-
-    truststore.inject_into_ssl()
-
-    context.run_id
-
     res = requests.get(
         f"https://graph.microsoft.com/v1.0/users/{context.op_config['email_address']}/mailFolders/inbox/messages",
         headers={"Authorization": f"Bearer {token}"},
@@ -142,10 +132,6 @@ def get_emails(context: OpExecutionContext, token: str):
     },
 )
 def download_attachments(context: OpExecutionContext, token: str, emails: list):
-    import truststore
-
-    truststore.inject_into_ssl()
-
     share: FileShareResource = context.resources.fs_destination
 
     headers = {"Authorization": f"Bearer {token}"}
@@ -183,10 +169,6 @@ def process_fleetaware_emails():
 
 @sensor(job=process_fleetaware_emails, minimum_interval_seconds=(60 * 5))
 def fleetaware_sensor(context: SensorEvaluationContext):
-    import truststore
-
-    truststore.inject_into_ssl()
-
     token = retrieve_token(
         os.getenv("AZURE_TENANT_ID"),
         os.getenv("FLEETAWARE_APP_ID"),

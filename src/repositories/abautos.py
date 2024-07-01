@@ -78,10 +78,6 @@ from resources.mssql import MSSqlServerResource, mssql_resource
     ),
 )
 def fetch_reports(context: OpExecutionContext):
-    import truststore
-
-    truststore.inject_into_ssl()
-
     end_date = datetime.fromisoformat(context.op_config["scheduled_date"])
     start_date = end_date - timedelta(minutes=int(context.op_config["interval"]))
 
@@ -388,10 +384,6 @@ def write_reports(context: OpExecutionContext, zpath: str):
     ),
 )
 def get_photo_urls(context: OpExecutionContext, zpath: str):
-    import truststore
-
-    truststore.inject_into_ssl()
-
     df = []
 
     for row in pd.read_parquet(zpath).itertuples(index=True):
@@ -454,9 +446,6 @@ def get_photo_urls(context: OpExecutionContext, zpath: str):
 )
 def download_photos(context: OpExecutionContext, zpath: str):
     import shutil
-    import truststore
-
-    truststore.inject_into_ssl()
 
     df = pd.read_parquet(zpath)
 
