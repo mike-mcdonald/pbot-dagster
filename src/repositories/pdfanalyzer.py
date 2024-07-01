@@ -47,9 +47,7 @@ def get_date_mmddyyyy(label : pdfquery):
         if m:
             return date_fixer(m[0])
     except:
-        raise Exception(
-                f"🔥 Error getting report date: '{ValueError}' - '{ValueError.text}'"
-        )
+        raise Exception
 
 def report_orderdate(pdf: pdfquery):
     datelabel = pdf.pq('LTTextLineHorizontal:contains("Order date")')
@@ -77,9 +75,7 @@ def get_date_bddyyyy(label : pdfquery):
             #strdate =  datetime.strptime(m[0], '%d %b %Y').strftime('%m/%d/%Y') 
             sdate =  datetime.strptime(m[0], '%d %b %Y')
     except:
-        raise Exception(
-                f"🔥 Error getting report date: '{ValueError}' - '{ValueError.text}'"
-        )  
+        raise Exception
 
     return date_fixer(sdate)
 
@@ -163,10 +159,10 @@ def upload_file(context: OpExecutionContext, results: list[dict]):
     for row in results:
         sourcefile = Path(row["Renamedfile"])
         targetfile = Path(row["Ftpfile"]).parent / Path("ValidationFolder") / Path(row["Renamedfile"]).name
-        context.op_config(f"🚗 {str(sourcefile)} to {str(targetfile)}")
+        context.log.info(f"🚗 {sourcefile} to {targetfile}")
         sftp.put(sourcefile, targetfile)
         row.update(Action='Uploaded')
-        context.op_config(f"🚗 {row}")
+        context.log.info(f"🚗 {row}")
     context.log.info(f" 🚗 Uploaded {len(results)} files in {datetime.now() - trace}.")
     return results
 
@@ -194,21 +190,20 @@ def write_csv(context: OpExecutionContext, records: list[dict]):
 def rename_files(context: OpExecutionContext, list_of_list: list[list[dict]]):
     file_list = []
     if len(list_of_list) > 0 :
-        for results in list_of_list: 
+        for results in list_of_list:
+            context.log.info(f"🚗 {results}") 
             if len(results) > 0:
                 try:
                     for row in results:
                         sourcefile = Path(row["Localfile"])
                         targetfile = Path(row["Renamedfile"])
-                        context.op_config(f"🚗 {sourcefile} to {targetfile}")
+                        context.log.info(f"🚗 {sourcefile} to {targetfile}")
                         shutil.move(sourcefile, targetfile)
                         row.update(Action='Renamed')
-                        context.op_config(f"🚗 {row}")
+                        context.log_info(f"🚗 {row}")
                         file_list.append(row)
                 except:
-                    raise Exception(
-                        f"🔥 Error renaming files: '{ValueError}' - '{ValueError.text}'"
-                    )
+                    raise Exception
     return file_list
     
 @op(
@@ -233,7 +228,7 @@ def analyze_files(context: OpExecutionContext, download_files: list[str]):
             localfile = download_path / Path(ftpfile).name
             match_filename = find_pattern(ftpfile)
             status = ''
-            reportdate = ''    
+            reportdate = None    
             if match_filename in ['_BGC.pdf','_MVR.pdf']:
                 status = find_status(localfile)
                 reportdate = report_completeddate(localfile)
@@ -282,9 +277,7 @@ def download_files(context: OpExecutionContext, list_of_list: list[list[str]]):
                         file_list.append(filename) 
                     context.log.info(f" 🚗 Downloaded {len(download_list)} files in {datetime.now() - trace}.")
                 except:
-                    raise Exception(
-                        f"🔥 Error downloading {filename}: '{ValueError}' - '{ValueError.text}'"
-                    )  
+                    raise Exception
     return file_list
 
 
@@ -316,6 +309,8 @@ def get_list(context: OpExecutionContext):
             if (re.search(context.op_config["match_filename"], filename)):
                 file = os.path.join(context.op_config["base_path"],filename)
                 file_list.append(file)
+                if len(file_list) == 5:
+                    return file_list
         context.log.info(f" 🚗 {context.op_config['base_path']} has {len(file_list)} files matching {context.op_config['match_filename']} ")
     return file_list
     
