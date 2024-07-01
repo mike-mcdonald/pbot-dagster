@@ -1,14 +1,11 @@
 azure-identity
 azure-storage-file-datalake
-dagit
 dagster
+dagster-azure
 dagster-graphql
 dagster-postgres
-dagster-azure
-pandas
-pyarrow
-pycryptodome
+dagster-webserver
 pyodbc
 sqlalchemy
 sqlalchemy_utils
-truststore
+# truststore

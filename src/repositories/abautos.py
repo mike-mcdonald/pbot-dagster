@@ -78,10 +78,6 @@ from resources.mssql import MSSqlServerResource, mssql_resource
     ),
 )
 def fetch_reports(context: OpExecutionContext):
-    import truststore
-
-    truststore.inject_into_ssl()
-
     end_date = datetime.fromisoformat(context.op_config["scheduled_date"])
     start_date = end_date - timedelta(minutes=int(context.op_config["interval"]))
 
@@ -388,10 +384,6 @@ def write_reports(context: OpExecutionContext, zpath: str):
     ),
 )
 def get_photo_urls(context: OpExecutionContext, zpath: str):
-    import truststore
-
-    truststore.inject_into_ssl()
-
     df = []
 
     for row in pd.read_parquet(zpath).itertuples(index=True):
@@ -454,9 +446,6 @@ def get_photo_urls(context: OpExecutionContext, zpath: str):
 )
 def download_photos(context: OpExecutionContext, zpath: str):
     import shutil
-    import truststore
-
-    truststore.inject_into_ssl()
 
     df = pd.read_parquet(zpath)
 
@@ -485,15 +474,18 @@ def create_photo_records(context: OpExecutionContext, zpath: str):
             context, "Exec sp_CreateAbCasePhotoZ ?, ? ", row.AbCaseId, row.PhotoFileName
         )
         results = cursor.fetchone()
+
         if results is None:
             raise Exception
-        match results[1]:
-            case "Success":
-                count_created += 1
-            case "Missing":
-                context.log.warning(
-                    f"🚀 Not found record with caseid - {row.AbCaseId}. Did create abcasephoto record."
-                )
+        status = results[1]
+
+        if status == "Success":
+            count_created += 1
+        elif status == "Missing":
+            context.log.warning(
+                f"🚀 Not found record with caseid - {row.AbCaseId}. Did create abcasephoto record."
+            )
+
         cursor.close()
     context.log.info(
         f"🚀 {count_created} photo records created in Abandoned Autos database."
@@ -581,9 +573,7 @@ def zendesk_api_schedule(context: ScheduleEvaluationContext):
                         "conn_id": "fs_abautos_photos",
                     }
                 },
-                "sql_server": {
-                    "config": {"mssql_server_conn_id": "mssql_server_abautos"}
-                },
+                "sql_server": {"config": {"conn_id": "mssql_server_abautos"}},
             },
             "ops": {
                 "fetch_reports": {

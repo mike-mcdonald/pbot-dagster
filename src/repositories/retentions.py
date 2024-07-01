@@ -2,7 +2,6 @@ from pathlib import Path
 from typing import Callable, Tuple
 
 from dagster import (
-    Any,
     Failure,
     Field,
     Int,
@@ -87,11 +86,10 @@ def remove_database_data(
         if results is None:
             raise Failure("No records found that exceed retention period.")
 
-        match results[0]:
-            case "Success":
-                successes.append(row)
-            case _:
-                failures.append(dict(**row, message=results[0]))
+        if results[0] == "Success":
+            successes.append(row)
+        else:
+            failures.append(dict(**row, message=results[0]))
 
         cursor.close()
 
@@ -199,9 +197,7 @@ def sidewalk_retention_schedule(context: ScheduleEvaluationContext):
         run_key=context.scheduled_execution_time.isoformat(),
         run_config={
             "resources": {
-                "sql_server": {
-                    "config": {"mssql_server_conn_id": "mssql_server_sidewalk"}
-                },
+                "sql_server": {"config": {"conn_id": "mssql_server_sidewalk"}},
                 "fs_sidewalk_posting": {"config": {"conn_id": "fs_sidewalk_posting"}},
             },
             "ops": {

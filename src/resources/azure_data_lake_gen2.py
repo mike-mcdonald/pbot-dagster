@@ -13,18 +13,18 @@ from resources.base import BaseResource
 class AzureDataLakeGen2Resource(BaseResource):
     def __init__(
         self,
-        azure_data_lake_gen2_conn_id="azure_data_lake_gen2",
+        conn_id="azure_data_lake_gen2",
     ):
-        self.azure_data_lake_gen2_conn_id = azure_data_lake_gen2_conn_id
-        self.client = self.get_connection()
+        self.conn_id = conn_id
+        self.client = self.get_client()
 
-    def get_connection(self) -> DataLakeServiceClient:
+    def get_client(self) -> DataLakeServiceClient:
         """
         Authenticates the resource using the connection id passed during init.
 
         :return: the authenticated client.
         """
-        connection = super().get_connection(self.azure_data_lake_gen2_conn_id)
+        connection = super().get_connection(self.conn_id)
 
         return DataLakeServiceClient(
             account_url=f"https://{connection.host}.dfs.core.windows.net/",
@@ -105,10 +105,10 @@ class AzureDataLakeGen2Resource(BaseResource):
         return properties
 
 
-@resource(config_schema={"azure_data_lake_gen2_conn_id": str})
+@resource(config_schema={"conn_id": str})
 def adls2_resource(init_context):
     return AzureDataLakeGen2Resource(
-        azure_data_lake_gen2_conn_id=init_context.resource_config[
-            "azure_data_lake_gen2_conn_id"
+        conn_id=init_context.resource_config[
+            "conn_id"
         ]
     )

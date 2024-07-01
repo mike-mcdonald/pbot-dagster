@@ -1,5 +1,5 @@
-import csv
 import decimal
+import re
 
 from datetime import date, datetime, time
 from pathlib import Path
@@ -30,11 +30,11 @@ from resources.mssql import MSSqlServerResource
 def __op(
     context: OpExecutionContext,
     table: str,
-    writerClass: Union[pc.CSVWriter, pq.ParquetWriter],
+    writerClass,
 ):
     schema = context.op_config["schema"]
     batch_size = context.op_config["batch_size"]
-    exclusions = context.op_config["exclude"]
+    exclusions = [re.compile(e, re.IGNORECASE) for e in context.op_config["exclude"]]
 
     substitutions = {"schema": schema, "table": table}
     if "substitutions" in context.op_config:
@@ -52,7 +52,22 @@ def __op(
 
     conn: MSSqlServerResource = context.resources.sql_server
 
-    cursor = conn.execute(context, f"select * from [{schema}].[{table}]")
+    columns = []
+
+    with conn.client.cursor() as cursor:
+        cursor = cursor.columns(table, schema)
+        for row in cursor.fetchall():
+            column = row[3]
+
+            def check(p: re.Pattern):
+                p.search(column) is not None
+
+            if not any([check(e) for e in exclusions]):
+                columns.append(row[3])
+
+    cursor = conn.execute(
+        context, f"select {','.join(columns)} from [{schema}].[{table}]"
+    )
 
     context.log.info(f"🚀 Started processing {schema}.{table} to {local_path}...")
     trace = datetime.now()
@@ -77,10 +92,9 @@ def __op(
     for cd in cursor.description:
         name, type_code, display_size, internal_size, precision, scale, null_ok = cd
 
-        if name not in exclusions:
-            fields.append(
-                pa.field(name, ptype_map.get(type_code)(precision, scale), null_ok)
-            )
+        fields.append(
+            pa.field(name, ptype_map.get(type_code)(precision, scale), null_ok)
+        )
 
     schema = pa.schema(fields)
 
@@ -133,9 +147,9 @@ OP_CONFIG = dict(
 )
 
 
-@op(**OP_CONFIG)
-def table_to_csv(context: OpExecutionContext, table: str) -> str:
-    return __op(context, table, pc.CSVWriter)
+# @op(**OP_CONFIG)
+# def table_to_csv(context: OpExecutionContext, table: str) -> str:
+#     return __op(context, table, pc.CSVWriter)
 
 
 @op(**OP_CONFIG)
