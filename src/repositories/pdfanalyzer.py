@@ -60,7 +60,7 @@ def report_orderdate(pdf: pdfquery):
         report_date = get_date_mmddyyyy(ldate)
         return report_date
     else:
-        return 'Fail'
+        return None
 
 def get_date_bddyyyy(label : pdfquery):                                            
 
@@ -94,7 +94,7 @@ def report_completeddate(filepath: Path):
         report_date = get_date_bddyyyy(ldate)
         return report_date
     else:
-        return ''
+        return None
     
 def report_orderdate(filepath: Path):
     pdf = pdfquery.PDFQuery(filepath)
@@ -110,7 +110,7 @@ def report_orderdate(filepath: Path):
         report_date = get_date_mmddyyyy(ldate)   #different format than in report_completeddate
         return report_date
     else:
-        return ''
+        return None
     
 def find_status(filepath: Path):
     pdf = pdfquery.PDFQuery(filepath)
@@ -122,11 +122,11 @@ def find_status(filepath: Path):
         bottom_corner = float(label.attr('y0'))
         status_label = pdf.pq('LTTextLineHorizontal:in_bbox("%s, %s, %s, %s")' % (left_corner, bottom_corner-30, left_corner+150, bottom_corner)).text()
         if (re.search('Clear', status_label)):
-            return 'Pass'    
+            return True, 'Clear'    
         else:
-            return 'Fail'
+            return False, 'Status is not "Clear"'
     else:
-        return 'Fail'
+        return False, 'Unable to read Status'
 
 def find_violations(filepath: Path):
     pdf = pdfquery.PDFQuery(filepath)
@@ -134,9 +134,9 @@ def find_violations(filepath: Path):
     label = pdf.pq('LTTextLineHorizontal:contains("There are no violations in the report.")')
     pdf.file.close()
     if (label.attr('x0')) is not None:
-        return  'Pass'
+        return  True, 'No violations'
     else:
-        return 'Fail'
+        return  False, 'Found violations in report'
     
 def find_pattern(filename: str):
     m = re.search('_(BGC|MVR|DMV).pdf$', filename)
@@ -145,9 +145,6 @@ def find_pattern(filename: str):
     return None
 
 @op(
-    ins={
-        "results": In(List, description=""),
-    },
     out={"results": Out(List)},
     required_resource_keys=["ssh_client"],
 )   
@@ -159,10 +156,7 @@ def upload_file(context: OpExecutionContext, results: list[dict]):
     for row in results:
         sourcefile = Path(row["Renamedfile"])
         targetfile = Path(row["Ftpfile"]).parent / Path("ValidationFolder") / Path(row["Renamedfile"]).name
-        context.log.info(f"🚗 {sourcefile} to {targetfile}")
-        sftp.put(sourcefile, targetfile)
-        row.update(Action='Uploaded')
-        context.log.info(f"🚗 {row}")
+        sftp.put(sourcefile, str(targetfile))
     context.log.info(f" 🚗 Uploaded {len(results)} files in {datetime.now() - trace}.")
     return results
 
@@ -177,10 +171,11 @@ def upload_file(context: OpExecutionContext, results: list[dict]):
 def write_csv(context: OpExecutionContext, records: list[dict]):
     download_path = Path(context.op_config["download_path"]) 
     with open(download_path / 'drivers.csv', 'w', newline ='') as csv_file: 
-        writer = csv.DictWriter(csv_file, fieldnames = ['Ftpfile', 'Localfile', 'Status', 'Renamedfile', 'Reportdate', 'Action'] ) 
+        writer = csv.DictWriter(csv_file, fieldnames = ['Ftpfile', 'Localfile', 'Status', 'Renamedfile', 'Reportdate', 'Analysis'] ) 
         writer.writeheader()
         for row in records:
             writer.writerow(row)
+    return records
     
 @op(
     out=Out(
@@ -191,16 +186,12 @@ def rename_files(context: OpExecutionContext, list_of_list: list[list[dict]]):
     file_list = []
     if len(list_of_list) > 0 :
         for results in list_of_list:
-            context.log.info(f"🚗 {results}") 
             if len(results) > 0:
                 try:
                     for row in results:
                         sourcefile = Path(row["Localfile"])
                         targetfile = Path(row["Renamedfile"])
-                        context.log.info(f"🚗 {sourcefile} to {targetfile}")
                         shutil.move(sourcefile, targetfile)
-                        row.update(Action='Renamed')
-                        context.log_info(f"🚗 {row}")
                         file_list.append(row)
                 except:
                     raise Exception
@@ -218,7 +209,7 @@ def rename_files(context: OpExecutionContext, list_of_list: list[list[dict]]):
     },
     out=Out(List),
 )   
-def analyze_files(context: OpExecutionContext, download_files: list[str]):
+def analyze_bgcfiles(context: OpExecutionContext, download_files: list[str]):
     results = []
     trace = datetime.now()
     if len(download_files) > 0:
@@ -227,23 +218,76 @@ def analyze_files(context: OpExecutionContext, download_files: list[str]):
         for ftpfile in download_files:
             localfile = download_path / Path(ftpfile).name
             match_filename = find_pattern(ftpfile)
-            status = ''
-            reportdate = None    
-            if match_filename in ['_BGC.pdf','_MVR.pdf']:
-                status = find_status(localfile)
-                reportdate = report_completeddate(localfile)
-            else:
-                if match_filename in ['_DMV.pdf']:
-                    status = find_violations(localfile)
-                    reportdate = report_orderdate(localfile)
-            if status in 'Pass':
+            status = False
+            analysis = []
+            reportdate = None       
+            status, reason = find_status(localfile)
+            analysis.append(reason)
+            reportdate = report_completeddate(localfile)
+            if reportdate is None:
+                reason = 'Unable to process date'
+                status = False
+                analysis.append(reason)
+            elif not is_date_within_a_year(reportdate):
+                reason = ' Report date is older than 1 year'
+                status = False
+                analysis.append(reason)
+            if status:
                 pass_filename  = match_filename.split('.')[0] + "_Pass" + ".pdf"
                 renamedfile = re.sub(match_filename,pass_filename,str(localfile),flags=re.IGNORECASE)  
-                results.append({"Ftpfile": ftpfile, "Localfile": str(localfile),"Status": "Pass", "Renamedfile": renamedfile, "Reportdate": reportdate, "Action": 'Validated'})
+                results.append({"Ftpfile": ftpfile, "Localfile": str(localfile),"Status": "Pass", "Renamedfile": renamedfile, "Reportdate": reportdate, "Analysis": '; '.join(analysis)})
             else:
                 fail_filename  = match_filename.split('.')[0] + "_Fail" + ".pdf"
                 renamedfile = re.sub(match_filename,fail_filename,str(localfile),flags=re.IGNORECASE)  
-                results.append({"Ftpfile": ftpfile, "Localfile": str(localfile), "Status": "Fail", "Renamedfile": renamedfile, "Reportdate": reportdate, "Action": 'Validated'})
+                results.append({"Ftpfile": ftpfile, "Localfile": str(localfile), "Status": "Fail", "Renamedfile": renamedfile, "Reportdate": reportdate, "Analysis": '; '.join(analysis)})
+            filecount += 1          
+    context.log.info(f"Checked {len(results)} new files in {datetime.now() - trace}.")
+    return  results
+
+
+@op(
+    config_schema={
+        "download_path": Field(
+            String,
+            description = "Location of downloaded files"
+        ),
+    },    
+    ins={
+        "download_files": In(List, description="List of files downloaded"),
+    },
+    out=Out(List),
+)   
+def analyze_dmvfiles(context: OpExecutionContext, download_files: list[str]):
+    results = []
+    trace = datetime.now()
+    if len(download_files) > 0:
+        filecount = 0
+        download_path = Path(context.op_config["download_path"]) 
+        for ftpfile in download_files:
+            localfile = download_path / Path(ftpfile).name
+            match_filename = find_pattern(ftpfile)
+            status = False
+            analysis = []
+            reportdate = None    
+            status, reason = find_violations(localfile)
+            analysis.append(reason)
+            reportdate = report_orderdate(localfile)
+            if reportdate is None:
+                reason = 'Unable to process date'
+                status = False
+                analysis.append(reason)
+            elif not is_date_within_a_year(reportdate):
+                reason = ' Report date is older than 1 year'
+                status = False
+                analysis.append(reason)
+            if status:
+                pass_filename  = match_filename.split('.')[0] + "_Pass" + ".pdf"
+                renamedfile = re.sub(match_filename,pass_filename,str(localfile),flags=re.IGNORECASE)  
+                results.append({"Ftpfile": ftpfile, "Localfile": str(localfile),"Status": "Pass", "Renamedfile": renamedfile, "Reportdate": reportdate, "Analysis": '; '.join(analysis)})
+            else:
+                fail_filename  = match_filename.split('.')[0] + "_Fail" + ".pdf"
+                renamedfile = re.sub(match_filename,fail_filename,str(localfile),flags=re.IGNORECASE)  
+                results.append({"Ftpfile": ftpfile, "Localfile": str(localfile), "Status": "Fail", "Renamedfile": renamedfile, "Reportdate": reportdate, "Analysis": '; '.join(analysis)})
             filecount += 1          
     context.log.info(f"Checked {len(results)} new files in {datetime.now() - trace}.")
     return  results
@@ -326,16 +370,16 @@ def process_pdfs():
     files = []
     files.append(get_list.alias("get_uber_bgc")())
     files.append(get_list.alias("get_lyft_bgc")())
+    files.append(get_list.alias("get_uber_mvr")())
     
-    mvr_files  = []
-    mvr_files.append(get_list.alias("get_uber_mvr")())
-    mvr_files.append(get_list.alias("get_lyft_mvr")())
+    dmv_files  = []
+    dmv_files.append(get_list.alias("get_lyft_dmv")())
   
     results = []
-    results.append(analyze_files.alias("analyze_bgc")(download_files.alias("download_bgc")(files)))
-    results.append(analyze_files.alias("analyze_mvr")(download_files.alias("download_mvr")(mvr_files)))
+    results.append(analyze_bgcfiles(download_files.alias("download_bgc")(files)))
+    results.append(analyze_dmvfiles(download_files.alias("download_dmv")(dmv_files)))
     
-    write_csv(rename_files(results))
+    upload_file(write_csv(rename_files(results)))
 
 
 @schedule(
@@ -382,13 +426,13 @@ def pdfanalyzer_schedule(context: ScheduleEvaluationContext):
                          "match_filename": "_MVR.pdf$",
                     },
                 },
-                "get_lyft_mvr": {
+                "get_lyft_dmv": {
                     "config":{
                          "base_path": "Lyft_Background_Docs",
                          "match_filename": "_DMV.pdf$",
                     },
                 },
-                "download_mvr": {
+                "download_dmv": {
                     "config":{
                          "download_path": f"{execution_date_path}",
                     }
