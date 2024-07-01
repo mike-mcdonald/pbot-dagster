@@ -5,6 +5,7 @@ import pandas as pd
 import requests
 
 from dagster import (
+    Failure,
     Field,
     In,
     Nothing,
@@ -56,10 +57,13 @@ def signs_to_file(context: OpExecutionContext):
     signs = res.json().get("data").get("signs", [])
 
     if not len(signs):
-        context.log.error("No signs found!")
-        raise
+        raise Failure("No signs retrieved!")
 
-    df = pd.DataFrame.from_records(signs).reset_index(names=["OBJECTID"])
+    df = (
+        pd.DataFrame.from_records(signs)
+        .reset_index()
+        .rename(columns={"index": "OBJECTID"})
+    )
 
     df["status"] = df["status"].map(
         lambda x: {"in_use": "INUSE", "obsolete": "OBSOLETE"}.get(x, None)
