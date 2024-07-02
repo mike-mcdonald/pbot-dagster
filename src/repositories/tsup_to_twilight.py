@@ -7,7 +7,7 @@ from dagster import (
 
 from ops.azure import upload_file
 from ops.fs import remove_files
-from ops.sql_server import get_table_names_dynamic, table_to_csv
+from ops.sql_server import get_table_names_dynamic, table_to_parquet
 
 from resources import adls2_resource
 from resources.mssql import mssql_resource
@@ -21,7 +21,7 @@ from resources.mssql import mssql_resource
     }
 )
 def tsup_to_twilight():
-    files = get_table_names_dynamic().map(table_to_csv).map(upload_file)
+    files = get_table_names_dynamic().map(table_to_parquet).map(upload_file)
 
     remove_files(files.collect())
 
@@ -46,10 +46,10 @@ def tsup_schedule(context):
             "get_table_names_dynamic": {
                 "config": {"schema": "TSUP", "exclude": ["z_history"]}
             },
-            "table_to_csv": {
+            "table_to_parquet": {
                 "config": {
                     "schema": "TSUP",
-                    "path": "//pbotdm2/pudl/tsup/${execution_date}/${table}.csv",
+                    "path": "//pbotdm2/pudl/tsup/${execution_date}/${table}.parquet",
                     "substitutions": {"execution_date": execution_date},
                 }
             },

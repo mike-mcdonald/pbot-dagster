@@ -3,6 +3,8 @@ from pathlib import Path
 
 import pyarrow as pa
 
+from pyarrow.parquet import read_table
+
 from dagster import (
     Field,
     In,
@@ -33,36 +35,17 @@ def file_to_table(context: OpExecutionContext, path: str, table: str):
 
     # read path as Path
     p = Path(path)
-    ext = p.suffix
 
-    t: pa.Table
-
-    # Get the table in some form
-    if ext == ".csv":
-        from pyarrow import csv
-
-        t = csv.read_csv(p)
-    elif ext == ".parquet":
-        from pyarrow.parquet import read_table
-
-        t = read_table(p)
-
-    reader = t.to_reader()
+    t: pa.Table = read_table(p)
 
     sql = f"insert into {table_name} ({','.join(t.schema.names)}) values ({','.join(['?' for x in range(len(t.schema.names))])});"
 
     context.log.info(f"Will execute '{sql}' for {t.num_rows} rows")
     trace = datetime.now()
 
-    running = True
-
-    while running:
-        try:
-            batch = reader.read_next_batch()
-            for row in batch.to_pylist():
-                conn.execute(context, sql, *[v for v in row.values()])
-        except StopIteration:
-            running = False
+    for batch in t.to_batches():
+        for row in zip(*[v for v in batch.to_pydict().values()]):
+            conn.execute(context, sql, *row)
 
     context.log.info(
         f"Executing '{sql}' for {t.num_rows} rows took {datetime.now() - trace}"
