@@ -144,39 +144,136 @@ def find_pattern(filename: str):
         return m.group()
     return None
 
+
 @op(
+    config_schema={
+        "driver_co": Field(
+            String,
+            description= "Uber or Lyft"
+        )
+    },
+    out=Out(
+        List[dict],
+    ),
+    required_resource_keys=["ssh_client"],
+)   
+def get_files(context: OpExecutionContext, files: list[dict]):
+    driver_co = context.op_config["driver_co"]
+    records = []
+    for row in files:
+        if driver_co in row["Ftpfile"]:
+            records.append(row)
+    return records
+
+
+@op(
+    config_schema={
+        "base_path": Field(
+            String,
+            description = "Uber / Lyft files location"
+        ),
+    },
+    out=Out(
+        List[String],
+    ),
+    required_resource_keys=["ssh_client"],
+)   
+def delete_file(context: OpExecutionContext):
+    ssh_client: SSHClientResource = context.resources.ssh_client
+    sftp = ssh_client.get_sftpClient()
+    sftp.chdir(None)
+    sftp.chdir(context.op_config["base_path"])
+    filenames = sftp.listdir()  # Get list of files in the current directory
+    if len(filenames) > 0:
+        for filename in filenames:   
+            sftp.remove(filename)
+        context.log.info(f" 🚗 Deleting {len(filenames)} files from {context.op_config['base_path']} . ")
+    return filenames
+    
+
+@op(
+    config_schema={
+        "base_path": Field(
+            String,
+            description = "Uber / Lyft files location"
+        ),
+    },
+    out=Out(
+        List[String],
+    ),
+    required_resource_keys=["ssh_client"],
+)   
+def move_file(context: OpExecutionContext):
+    ssh_client: SSHClientResource = context.resources.ssh_client
+    sftp = ssh_client.get_sftpClient()
+    sftp.chdir(None)
+    sftp.chdir(context.op_config["base_path"])
+    filenames = sftp.listdir()  # Get list of files in the current directory
+    if len(filenames) > 0:
+        file_list = []
+        for filename in filenames: 
+            if not find_pattern(filename):  
+                targetfile = Path(filename).parent / Path("ValidationFolder") / Path(filename).name
+                sftp.rename(filename,str(targetfile))
+                context.log.info(f" 🚗 Moving {filename} to {targetfile}")
+                file_list.append(filename) 
+        context.log.info(f" 🚗 Moving {len(file_list)} files from {context.op_config['base_path']} to ValidationFolder")
+    return file_list
+    
+@op(
+    config_schema={
+        "base_path": Field(
+            String,
+            description= "Uber or Lyft"
+        ),
+        "local_csv_file": Field(
+            String,
+            description= "Name of Uber or Lyft csv file "
+        ),
+    },
     out={"results": Out(List)},
     required_resource_keys=["ssh_client"],
 )   
 def upload_file(context: OpExecutionContext, results: list[dict]):
     trace = datetime.now()
-    ssh_client: SSHClientResource = context.resources.ssh_client
-    sftp = ssh_client.get_sftpClient()
-    sftp.chdir(None)
-    for row in results:
-        sourcefile = Path(row["Renamedfile"])
-        targetfile = Path(row["Ftpfile"]).parent / Path("ValidationFolder") / Path(row["Renamedfile"]).name
-        sftp.put(sourcefile, str(targetfile))
-    context.log.info(f" 🚗 Uploaded {len(results)} files in {datetime.now() - trace}.")
+    try:
+        ssh_client: SSHClientResource = context.resources.ssh_client
+        sftp = ssh_client.get_sftpClient()
+        sftp.chdir(None)
+        for row in results:
+            sourcefile = Path(row["Renamedfile"])
+            targetfile = Path(row["Ftpfile"]).parent / Path("ValidationFolder") / Path(row["Renamedfile"]).name
+            context.log.info(f" 🚗 Move {sourcefile} to {targetfile}.")
+            sftp.put(sourcefile, str(targetfile))
+
+        context.log.info(f" 🚗 Uploaded {len(results)} files in {datetime.now() - trace}.")
+        
+        local_csv_file = Path(context.op_config["local_csv_file"])   
+        #targetfile = Path(context.op_config["base_path"]) / Path("ResultFolder") / Path(local_csv_file).name
+        targetfile = Path(context.op_config["base_path"]) / Path("ValidationFolder") / Path(local_csv_file).name
+        context.log.info(f" 🚗 Analysis file: {local_csv_file} to {targetfile}.")
+        sftp.put(local_csv_file,targetfile)
+    except:
+          raise Exception
     return results
 
 @op(
     config_schema={
-        "download_path": Field(
+        "csv_filename": Field(
             String,
-            description = "Location of downloaded files"
-        ),
+            description= "Name of Uber or Lyft csv file "
+        )
     },
 )   
 def write_csv(context: OpExecutionContext, records: list[dict]):
-    download_path = Path(context.op_config["download_path"]) 
-    with open(download_path / 'drivers.csv', 'w', newline ='') as csv_file: 
+    csv_filename  = Path(context.op_config["csv_filename"]) 
+    with open(csv_filename, 'w', newline ='') as csv_file: 
         writer = csv.DictWriter(csv_file, fieldnames = ['Ftpfile', 'Localfile', 'Status', 'Renamedfile', 'Reportdate', 'Analysis'] ) 
         writer.writeheader()
         for row in records:
             writer.writerow(row)
     return records
-    
+
 @op(
     out=Out(
         List[dict],
@@ -329,7 +426,7 @@ def download_files(context: OpExecutionContext, list_of_list: list[list[str]]):
     config_schema={
         "base_path": Field(
             String,
-            description = "uber files location"
+            description = "Uber / Lyft files location"
         ),
         "match_filename": Field(
             String,
@@ -351,9 +448,11 @@ def get_list(context: OpExecutionContext):
         file_list = []
         for filename in filenames:   
             if (re.search(context.op_config["match_filename"], filename)):
+                context.log.info(f" 🚗 {filename} - {context.op_config['match_filename']}")
                 file = os.path.join(context.op_config["base_path"],filename)
                 file_list.append(file)
                 if len(file_list) == 5:
+                    context.log.info(f" 🚗 {file_list}")
                     return file_list
         context.log.info(f" 🚗 {context.op_config['base_path']} has {len(file_list)} files matching {context.op_config['match_filename']} ")
     return file_list
@@ -379,7 +478,15 @@ def process_pdfs():
     results.append(analyze_bgcfiles(download_files.alias("download_bgc")(files)))
     results.append(analyze_dmvfiles(download_files.alias("download_dmv")(dmv_files)))
     
-    upload_file(write_csv(rename_files(results)))
+    all_files = rename_files(results)
+    
+    upload_file.alias("upload_uber")(write_csv.alias("write_uber")(get_files.alias("get_uber_files")(all_files)))
+    upload_file.alias("upload_lyft")(write_csv.alias("write_lyft")(get_files.alias("get_lyft_files")(all_files)))
+    #upload_file(write_csv(rename_files(results)))
+    # move_file.alias("move_uber")
+    # move_file.alias("move_lyft")
+    # delete_file.alias("delete_uber")
+    # delete_file.alias("delete_lyft")
 
 
 @schedule(
@@ -447,10 +554,57 @@ def pdfanalyzer_schedule(context: ScheduleEvaluationContext):
                          "download_path": f"{execution_date_path}",
                     },
                 },
-                "write_csv": {
+                "get_uber_files": {
                     "config":{
-                         "download_path": f"{execution_date_path}",
+                         "driver_co": "Uber",
+                    },
+                },
+                "get_lyft_files": {
+                    "config":{
+                          "driver_co": "Lyft",
+                    },
+                },
+                "write_uber": {
+                    "config":{
+                         "csv_filename": f"{execution_date_path}/{execution_date}Uber_drivers.csv",
                     }
+                },
+                "write_lyft": {
+                    "config":{
+                         "csv_filename": f"{execution_date_path}/{execution_date}Lyft_drivers.csv",
+                    }
+                },
+                "upload_uber": {
+                    "config":{
+                         "base_path": "Uber_Background_Docs",
+                         "local_csv_file": f"{execution_date_path}/{execution_date}Uber_drivers.csv",
+                    },
+                },
+                "upload_lyft": {
+                    "config":{
+                         "base_path": "Lyft_Background_Docs",
+                         "local_csv_file": f"{execution_date_path}/{execution_date}Lyft_drivers.csv",
+                    },
+                },
+                "move_uber": {
+                    "config":{
+                         "base_path": "Uber_Background_Docs",
+                    },
+                },
+                "move_lyft": {
+                    "config":{
+                         "base_path": "Lyft_Background_Docs",
+                    },
+                },
+                "delete_uber": {
+                    "config":{
+                         "base_path": "Uber_Background_Docs",
+                    },
+                },
+                "delete_lyft": {
+                    "config":{
+                         "base_path": "Lyft_Background_Docs",
+                    },
                 },
             },
         }
