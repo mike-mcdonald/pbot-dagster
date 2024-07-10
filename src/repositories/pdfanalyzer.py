@@ -163,20 +163,24 @@ def is_other_file(filename: str, ids : list[str]):
     ),
     required_resource_keys=["ssh_client"],
 )   
-def get_other_file(context: OpExecutionContext, ids: list[str]):
-    ssh_client: SSHClientResource = context.resources.ssh_client
-    sftp = ssh_client.get_sftpClient()
-    sftp.chdir(None)
-    sftp.chdir(context.op_config["base_path"])
-    filenames = sftp.listdir()  # Get list of files in the current directory
-    file_list = []
-    if len(filenames) > 0:
-        for filename in filenames:   
-            if is_other_file(filename, ids):
-                file = os.path.join(context.op_config["base_path"],filename)
-                file_list.append(file)
-            context.log.info(f" 🚗 {context.op_config['base_path']} has {len(file_list)} files not matching (_DMV|MVR|BGC).pdf ")
-        context.log.info(f" 🚗 Other files: {file_list}")
+def get_other_files(context: OpExecutionContext, ids: list[str]):
+    trace = datetime.now()
+    try:
+        ssh_client: SSHClientResource = context.resources.ssh_client
+        sftp = ssh_client.get_sftpClient()
+        sftp.chdir(None)
+        sftp.chdir(context.op_config["base_path"])
+        filenames = sftp.listdir()  # Get list of files in the current directory
+        file_list = []
+        if len(filenames) > 0:
+            for filename in filenames:   
+                if is_other_file(filename, ids):
+                    file = os.path.join(context.op_config["base_path"],filename)
+                    file_list.append(file)
+        context.log.info(f" 🚗 Get other files: {len(file_list)} in {datetime.now() - trace}.")
+    except Exception as err:
+        context.log.info(f"Fail to get other files {filename}: {err}")
+        raise err
     return file_list
 
 @op(
@@ -206,7 +210,7 @@ def get_files(context: OpExecutionContext, files: list[dict]):
     ),
     required_resource_keys=["ssh_client"],
 )   
-def delete_file(context: OpExecutionContext, results: list[dict]):
+def delete_files(context: OpExecutionContext, results: list[dict]):
     trace = datetime.now()
     try:
         ssh_client: SSHClientResource = context.resources.ssh_client
@@ -214,9 +218,9 @@ def delete_file(context: OpExecutionContext, results: list[dict]):
         sftp.chdir(None)
         for row in results:
             sftp.remove(row["Ftpfile"])
-        context.log.info(f" 🚗 Removed {len(results)} files in {datetime.now() - trace}.")
+        context.log.info(f" 🚗 Deleted {len(results)} files in {datetime.now() - trace}.")
     except Exception as err:
-        context.log.error(f"Fail to remove {row['Ftpfile']}: {err}")
+        context.log.info(f"Fail to delete {row['Ftpfile']}: {err}")
         raise err
     return results
 
@@ -232,16 +236,20 @@ def delete_file(context: OpExecutionContext, results: list[dict]):
     ),
     required_resource_keys=["ssh_client"],
 )   
-def move_file(context: OpExecutionContext, filenames: list[str]):
-    ssh_client: SSHClientResource = context.resources.ssh_client
-    sftp = ssh_client.get_sftpClient()
-    sftp.chdir(None)
-    sftp.chdir(context.op_config["base_path"])
-    for filename in filenames: 
-        targetfile = Path(context.op_config["base_path"]) / Path("ValidationFolder") / Path(filename).name
-        sftp.rename(str(filename),str(targetfile))
-        context.log.info(f" 🚗 Moving {filename} to {targetfile}")
-    context.log.info(f" 🚗 Moving {len(filenames)} files from {context.op_config['base_path']} to ValidationFolder")
+def move_files(context: OpExecutionContext, filenames: list[str]):
+    trace = datetime.now()
+    try:
+        ssh_client: SSHClientResource = context.resources.ssh_client
+        sftp = ssh_client.get_sftpClient()
+        sftp.chdir(None)
+        sftp.chdir(context.op_config["base_path"])
+        for filename in filenames: 
+            targetfile = Path(context.op_config["base_path"]) / Path("ValidationFolder") / Path(filename).name
+            sftp.rename(str(filename),str(targetfile))
+        context.log.info(f" 🚗 Moving {len(filenames)} other files from {context.op_config['base_path']} to ValidationFolder in {datetime.now() - trace}.")
+    except Exception as err:
+        context.log.info(f"Fail to move other file: {filename}: {err}")
+        raise err
     return filenames    
 
 @op(
@@ -250,7 +258,7 @@ def move_file(context: OpExecutionContext, filenames: list[str]):
     },
     required_resource_keys=["ssh_client"],
 )  
-def get_unique_id(context: OpExecutionContext, files: list[dict]):
+def get_unique_ids(context: OpExecutionContext, files: list[dict]):
     id_list = []
     for row in files: 
         id_list.append(str(Path(row["Ftpfile"]).name).split('_')[0])
@@ -273,7 +281,7 @@ def get_unique_id(context: OpExecutionContext, files: list[dict]):
     },
     required_resource_keys=["ssh_client"],
 )   
-def upload_file(context: OpExecutionContext, results: list[dict]):
+def upload_files(context: OpExecutionContext, results: list[dict]):
     trace = datetime.now()
     try:
         ssh_client: SSHClientResource = context.resources.ssh_client
@@ -292,7 +300,7 @@ def upload_file(context: OpExecutionContext, results: list[dict]):
         context.log.info(f" 🚗 Analysis file: {sourcefile} to {targetfile}")
         sftp.put(sourcefile,str(targetfile))
     except Exception as err:
-        context.log.error(f"Fail to upload {sourcefile} to {targetfile}: {err}")
+        context.log.info(f"Fail to upload {sourcefile} to {targetfile}: {err}")
         raise err
     return results
 
@@ -323,6 +331,7 @@ def rename_files(context: OpExecutionContext, list_of_list: list[list[dict]]):
     if len(list_of_list) > 0 :
         for results in list_of_list:
             if len(results) > 0:
+                context.log.info(f" 🚗 Renaming: {results}")   
                 try:
                     for row in results:
                         sourcefile = Path(row["Localfile"])
@@ -333,13 +342,13 @@ def rename_files(context: OpExecutionContext, list_of_list: list[list[dict]]):
                     raise Exception
     return file_list
     
-@op(
+@op( 
     config_schema={
         "download_path": Field(
             String,
-            description = "Location of downloaded files"
-        ),
-    },    
+            description = "Download files to this location"
+        )
+    },  
     ins={
         "download_files": In(List, description="List of files downloaded"),
     },
@@ -350,9 +359,8 @@ def analyze_bgcfiles(context: OpExecutionContext, download_files: list[str]):
     trace = datetime.now()
     if len(download_files) > 0:
         filecount = 0
-        download_path = Path(context.op_config["download_path"]) 
         for ftpfile in download_files:
-            localfile = download_path / Path(ftpfile).name
+            localfile = Path(context.op_config["download_path"]) / Path(ftpfile)
             match_filename = find_pattern(ftpfile)
             status = False
             analysis = []
@@ -376,7 +384,8 @@ def analyze_bgcfiles(context: OpExecutionContext, download_files: list[str]):
                 fail_filename  = match_filename.split('.')[0] + "_Fail" + ".pdf"
                 renamedfile = re.sub(match_filename,fail_filename,str(localfile),flags=re.IGNORECASE)  
                 results.append({"Ftpfile": ftpfile, "Localfile": str(localfile), "Status": "Fail", "Renamedfile": renamedfile, "Reportdate": reportdate, "Analysis": '; '.join(analysis)})
-            filecount += 1          
+            filecount += 1     
+    context.log.info(f" 🚗 Analyzed BGC-MVR: {results}")        
     context.log.info(f"Checked {len(results)} new files in {datetime.now() - trace}.")
     return  results
 
@@ -385,8 +394,8 @@ def analyze_bgcfiles(context: OpExecutionContext, download_files: list[str]):
     config_schema={
         "download_path": Field(
             String,
-            description = "Location of downloaded files"
-        ),
+            description = "Download files to this location"
+        )
     },    
     ins={
         "download_files": In(List, description="List of files downloaded"),
@@ -398,9 +407,8 @@ def analyze_dmvfiles(context: OpExecutionContext, download_files: list[str]):
     trace = datetime.now()
     if len(download_files) > 0:
         filecount = 0
-        download_path = Path(context.op_config["download_path"]) 
         for ftpfile in download_files:
-            localfile = download_path / Path(ftpfile).name
+            localfile = Path(context.op_config["download_path"]) / Path(ftpfile)
             match_filename = find_pattern(ftpfile)
             status = False
             analysis = []
@@ -424,7 +432,8 @@ def analyze_dmvfiles(context: OpExecutionContext, download_files: list[str]):
                 fail_filename  = match_filename.split('.')[0] + "_Fail" + ".pdf"
                 renamedfile = re.sub(match_filename,fail_filename,str(localfile),flags=re.IGNORECASE)  
                 results.append({"Ftpfile": ftpfile, "Localfile": str(localfile), "Status": "Fail", "Renamedfile": renamedfile, "Reportdate": reportdate, "Analysis": '; '.join(analysis)})
-            filecount += 1          
+            filecount += 1    
+    context.log.info(f" 🚗 Analyzed DMV: {results}")      
     context.log.info(f"Checked {len(results)} new files in {datetime.now() - trace}.")
     return  results
 
@@ -449,12 +458,16 @@ def download_files(context: OpExecutionContext, list_of_list: list[list[str]]):
                 try:
                     ssh_client: SSHClientResource = context.resources.ssh_client
                     sftp = ssh_client.get_sftpClient()
-                    download_path = Path(context.op_config["download_path"])
-                    download_path.mkdir(parents=True, exist_ok=True) 
                     trace = datetime.now()
                     for filename in download_list: 
-                        sftp.get(filename, download_path / Path(filename).name)
+                        download_path = Path(context.op_config["download_path"])  / Path(filename).parent 
+                        download_path.mkdir(parents=True, exist_ok=True) 
+                        download_filename = download_path / Path(filename).name
+                        sftp.get(filename, download_filename )
                         file_list.append(filename) 
+                        # sftp.get(filename, download_path / Path(filename) )
+                        #file_list.append(filename) 
+                    context.log.info(f" 🚗 Downloaded {file_list}")
                     context.log.info(f" 🚗 Downloaded {len(download_list)} files in {datetime.now() - trace}.")
                 except:
                     raise Exception
@@ -489,8 +502,9 @@ def get_list(context: OpExecutionContext):
             if (re.search(context.op_config["match_filename"], filename)):
                 file = os.path.join(context.op_config["base_path"],filename)
                 file_list.append(file)
-                if len(file_list) == 5:
-                    return file_list
+                #for testing purpose - get 10 records
+                #if len(file_list) == 10 :
+                #     return file_list
         context.log.info(f" 🚗 {context.op_config['base_path']} has {len(file_list)} files matching {context.op_config['match_filename']} ")
     return file_list
     
@@ -517,16 +531,16 @@ def process_pdfs():
     
     all_files = rename_files(results)
     
-    uber_files = upload_file.alias("upload_uber")(write_csv.alias("write_uber")(get_files.alias("get_uber_files")(all_files)))
-    get_other_file.alias("get_uber_other_file")(get_unique_id.alias("get_unique_uber_id")(uber_files))
-    # move_file.alias("move_uber_other")( get_other_file.alias("get_uber_other_file")(get_unique_id.alias("get_unique_uber_id")(uber_files)))
-    lyft_files = upload_file.alias("upload_lyft")(write_csv.alias("write_lyft")(get_files.alias("get_lyft_files")(all_files)))
-    get_other_file.alias("get_lyft_other_file")(get_unique_id.alias("get_unique_lyft_id")(lyft_files))
-    # move_file.alias("move_lyft_other")(get_other_file.alias("get_lyft_other_file")(get_unique_id.alias("get_unique_lyft_id")(lyft_files)))
+    uber_files = upload_files.alias("upload_uber")(write_csv.alias("write_uber")(get_files.alias("get_uber_files")(all_files)))
+    get_other_files.alias("get_uber_other_file")(get_unique_ids.alias("get_unique_uber_id")(uber_files))
+    # move_files.alias("move_uber_other")( get_other_file.alias("get_uber_other_file")(get_unique_id.alias("get_unique_uber_id")(uber_files)))
+    lyft_files = upload_files.alias("upload_lyft")(write_csv.alias("write_lyft")(get_files.alias("get_lyft_files")(all_files)))
+    get_other_files.alias("get_lyft_other_file")(get_unique_ids.alias("get_unique_lyft_id")(lyft_files))
+    # move_files.alias("move_lyft_other")(get_other_file.alias("get_lyft_other_file")(get_unique_id.alias("get_unique_lyft_id")(lyft_files)))
  
 
-    # delete_file.alias("delete_uber")(uber_files)
-    # delete_file.alias("delete_lyft")(lyft_files)
+    # delete_files.alias("delete_uber")(uber_files)
+    # delete_files.alias("delete_lyft")(lyft_files)
 
 
 @schedule(
@@ -562,11 +576,6 @@ def pdfanalyzer_schedule(context: ScheduleEvaluationContext):
                          "match_filename": "_BGC.pdf$",
                     },
                 },
-                "download_bgc": {
-                    "config":{
-                         "download_path": f"{execution_date_path}",
-                    }
-                },
                 "get_uber_mvr": {
                     "config":{
                          "base_path": "Uber_Background_Docs",
@@ -579,20 +588,25 @@ def pdfanalyzer_schedule(context: ScheduleEvaluationContext):
                          "match_filename": "_DMV.pdf$",
                     },
                 },
+                "download_bgc": {
+                    "config":{
+                         "download_path": f"{execution_date_path}",
+                    }
+                },
                 "download_dmv": {
                     "config":{
                          "download_path": f"{execution_date_path}",
                     }
                 },
-                "analyze_bgc": {
-                    "config": {
+                "analyze_bgcfiles": {
+                    "config":{
                          "download_path": f"{execution_date_path}",
-                    },
+                    }
                 },
-                "analyze_mvr": {
-                    "config": {
+                "analyze_dmvfiles": {
+                    "config":{
                          "download_path": f"{execution_date_path}",
-                    },
+                    }
                 },
                 "get_uber_files": {
                     "config":{
