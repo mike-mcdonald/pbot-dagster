@@ -130,7 +130,7 @@ def find_diagrams_inner(fs: FileShareResource, affidavit: dict, files: list):
     path = Path(fs.client.host) / "Diagrams" / f"{affidavit['uid']}.vsdx"
 
     if path.exists():
-        files.append(path.resolve())
+        files.append(str(path.resolve()))
 
 
 find_diagrams = find_files_op_factory("find_diagrams", find_diagrams_inner)
@@ -141,7 +141,7 @@ def find_pdfs_inner(fs: FileShareResource, affidavit: dict, files: list):
 
     for p in Path(path).glob(f"{affidavit['id']}*.pdf"):
         if p.exists():
-            files.append(p.resolve())
+            files.append(str(p.resolve()))
 
 
 find_pdfs = find_files_op_factory("find_pdfs", find_pdfs_inner)
@@ -151,7 +151,7 @@ def find_folders_inner(fs: FileShareResource, affidavit: dict, files: list):
     path: Path = Path(fs.client.host) / "AffidavitFolders" / str(affidavit["id"])
 
     if path.exists() and path.is_dir():
-        files.append(path.resolve())
+        files.append(str(path.resolve()))
 
 
 find_folders = find_files_op_factory("find_folders", find_folders_inner)
@@ -159,7 +159,11 @@ find_folders = find_files_op_factory("find_folders", find_folders_inner)
 
 @op
 def log_failed_deletions(context: OpExecutionContext, records: list[dict]):
+    if not len(records):
+        return
+
     context.log.error("Printing Affidavit IDs for records that failed deletion...")
+
     for record in records:
         context.log.error(
             f"AffidavitID: {record['id']}, AffidavitUID: {record['uid']}, Error: {record['message']}"
