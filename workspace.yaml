@@ -1,5 +1,8 @@
 load_from:
   - python_file:
+      relative_path: src/repositories/assets/assets.py
+      working_directory: src
+  - python_file:
       relative_path: src\repositories\fleetaware.py
       working_directory: src
   - python_file:
@@ -7,9 +10,6 @@ load_from:
       working_directory: src
   - python_file:
       relative_path: src\repositories\abautos.py
-      working_directory: src
-  - python_file:
-      relative_path: src/repositories/assets.py
       working_directory: src
   - python_file:
       relative_path: src/repositories/tests.py
