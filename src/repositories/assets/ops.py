@@ -71,6 +71,10 @@ def execute_asset_script(context: OpExecutionContext, *args):
     }
 )
 def extract_asset(context: OpExecutionContext):
+    Path(context.op_config["output"]).parent.resolve().mkdir(
+        parents=True, exist_ok=True
+    )
+
     execute_asset_script(
         context, context.op_config["feature_class"], context.op_config["output"]
     )
