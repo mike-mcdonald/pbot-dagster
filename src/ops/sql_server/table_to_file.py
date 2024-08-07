@@ -147,11 +147,6 @@ OP_CONFIG = dict(
 )
 
 
-# @op(**OP_CONFIG)
-# def table_to_csv(context: OpExecutionContext, table: str) -> str:
-#     return __op(context, table, pc.CSVWriter)
-
-
 @op(**OP_CONFIG)
 def table_to_parquet(context: OpExecutionContext, table: str) -> str:
     return __op(context, table, pq.ParquetWriter)
