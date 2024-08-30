@@ -71,7 +71,7 @@ def __remove_dir(path: Path, recursive: bool):
                 files.append(x)
 
     recursive(path)
-
+    path.rmdir()
     return [str(f.resolve()) for f in files]
 
 

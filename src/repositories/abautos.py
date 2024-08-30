@@ -18,7 +18,6 @@ from dagster import (
     MetadataValue,
     OpExecutionContext,
     Out,
-    Output,
     Permissive,
     RunRequest,
     ScheduleEvaluationContext,
@@ -36,7 +35,6 @@ from pathlib import Path
 
 from ops.fs import remove_dir
 from ops.template import apply_substitutions
-from resources.fs import FileShareResource, fileshare_resource
 from resources.mssql import MSSqlServerResource, mssql_resource
 
 
@@ -274,10 +272,56 @@ def read_reports(context: OpExecutionContext, path: str):
     df["Details"] = df.report_fields.map(create_description)
 
     def get_area(address: str):
-        m = re.search(r" [ENSW]{1,2} ", address)
+        m = re.search(r"\b[ENSW]{1,2}\b", address)
         return "SE" if m is None else m.group().strip()
 
     df["Area"] = df["Address"].map(get_area)
+
+    def get_neighborhood(longitude: float, latitude: float):
+
+        url = f"https://www.portlandmaps.com/arcgis/rest/services/Public/Boundaries/MapServer/1/query?"
+        point = f"{{'x':{longitude},'y':{latitude} }}"
+        parameters ={'geometry': {point}
+            ,'geometryType': 'esriGeometryPoint'
+            ,'inSR': '4326'
+            ,'spatialRel' : 'esriSpatialRelIntersects'
+            ,'distance' : ''
+            ,'units' : 'esriSRUnit_Foot'
+            ,'relationParam' : ''
+            ,'outFields' : ''
+            ,'returnGeometry' : 'false'
+            ,'f' : 'json'
+            }
+
+
+        session = requests.Session()
+        res = session.get(
+            url,
+            headers={"Content-Type": "application/json"},
+            params=parameters
+            )
+        name = ""
+        if res.status_code != 200:
+            raise Failure(
+            description="Get neighborhood error",
+            metadata={
+                "status_code": res.status_code,
+                "url": res.url,
+                "text": res.text,
+                "response": res.json()
+            },
+            )
+        data = res.json()
+
+        if data is None:
+            return(name)
+        else:
+            attributes  = data.get("features",[])
+            for attribute in attributes:
+                name = attribute.get("attributes").get("NAME")
+                return name
+
+    df["Neighborhood"] = df.apply(lambda x: get_neighborhood(x.Lng,x.Lat),axis=1)
 
     df["FirstName"] = df["Names"].astype(str).str.split().str[0]
     df["LastName"] = df["Names"].astype(str).str.split().str[1]
@@ -303,6 +347,7 @@ def read_reports(context: OpExecutionContext, path: str):
             "Email",
             "Waived",
             "Occupied",
+            "Neighborhood"
         ]
     ]
 
@@ -340,7 +385,7 @@ def write_reports(context: OpExecutionContext, zpath: str):
 
     for row in df.itertuples(index=False):
         cursor = conn.execute(
-            context, "Exec sp_CreateAbCaseZ ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? ", *row
+            context, "Exec sp_CreateAbCaseZ ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? ", *row
         )
         res = cursor.fetchone()
 
@@ -441,28 +486,8 @@ def get_photo_urls(context: OpExecutionContext, zpath: str):
     },
     out=Out(
         String,
-        description="The dataframe parquet file with list of photos downloaded",
+        description="The parent dir for removal to cleanup ",
     ),
-)
-def download_photos(context: OpExecutionContext, zpath: str):
-    import shutil
-
-    df = pd.read_parquet(zpath)
-
-    for row in df.itertuples(index=False):
-        with requests.get(row.PhotoUrl, stream=True) as r:
-            with open(
-                f"{context.op_config['parent_dir']}/{row.PhotoFileName}", "wb"
-            ) as f:
-                shutil.copyfileobj(r.raw, f)
-
-    return zpath
-
-
-@op(
-    ins={
-        "zpath": In(String),
-    },
     required_resource_keys={"sql_server"},
 )
 def create_photo_records(context: OpExecutionContext, zpath: str):
@@ -471,7 +496,7 @@ def create_photo_records(context: OpExecutionContext, zpath: str):
     count_created = 0
     for row in df.itertuples(index=True, name="Panda"):
         cursor = conn.execute(
-            context, "Exec sp_CreateAbCasePhotoZ ?, ? ", row.AbCaseId, row.PhotoFileName
+            context, "Exec sp_CreateAbCasePhotoZ ?, ?, ? ", row.AbCaseId, row.PhotoFileName, row.PhotoUrl
         )
         results = cursor.fetchone()
 
@@ -490,40 +515,6 @@ def create_photo_records(context: OpExecutionContext, zpath: str):
     context.log.info(
         f"🚀 {count_created} photo records created in Abandoned Autos database."
     )
-
-
-@op(
-    config_schema={
-        "destination_dir": Field(
-            String,
-            description="The abautos image directory location",
-        ),
-        "parent_dir": Field(
-            String,
-            description="The download photos directory location",
-        ),
-    },
-    ins={
-        "zpath": In(String),
-    },
-    out=Out(
-        String,
-        description="The parent dir for removal to cleanup ",
-    ),
-    required_resource_keys=["photo_share"],
-)
-def copy_photo_files(context: OpExecutionContext, zpath: str):
-    df = pd.read_parquet(zpath)
-
-    share: FileShareResource = context.resources.photo_share
-
-    source_folder = Path(context.op_config["parent_dir"])
-
-    def copyFile(photoFileName: str):
-        share.upload(source_folder / photoFileName, photoFileName)
-
-    df.PhotoFileName.apply(copyFile)
-
     return context.op_config["parent_dir"]
 
 
@@ -540,17 +531,12 @@ def remove_dir_on_failure(context: HookContext):
     resource_defs={
         "io_manager": fs_io_manager,
         "sql_server": mssql_resource,
-        "photo_share": fileshare_resource,
     },
     hooks={remove_dir_on_failure},
 )
 def process_zendesk_data():
-    path = download_photos(get_photo_urls(write_reports(read_reports(fetch_reports()))))
-    # Create abcasephoto record
-    create_photo_records(path)
-    # Move photos to abautos/images folder
-    remove_dir(copy_photo_files(path))
-
+    path = get_photo_urls(write_reports(read_reports(fetch_reports())))
+    remove_dir(create_photo_records(path))
 
 @schedule(
     job=process_zendesk_data,
@@ -568,11 +554,6 @@ def zendesk_api_schedule(context: ScheduleEvaluationContext):
         run_key=execution_date,
         run_config={
             "resources": {
-                "photo_share": {
-                    "config": {
-                        "conn_id": "fs_abautos_photos",
-                    }
-                },
                 "sql_server": {"config": {"conn_id": "mssql_server_abautos"}},
             },
             "ops": {
@@ -605,14 +586,8 @@ def zendesk_api_schedule(context: ScheduleEvaluationContext):
                         "parent_dir": execution_date_path,
                     },
                 },
-                "download_photos": {
+                "create_photo_records": {
                     "config": {
-                        "parent_dir": execution_date_path,
-                    },
-                },
-                "copy_photo_files": {
-                    "config": {
-                        "destination_dir": rf"{EnvVar('ABAUTOS_IMAGE_PATH').get_value()}",
                         "parent_dir": execution_date_path,
                     },
                 },
