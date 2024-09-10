@@ -278,50 +278,46 @@ def read_reports(context: OpExecutionContext, path: str):
     df["Area"] = df["Address"].map(get_area)
 
     def get_neighborhood(longitude: float, latitude: float):
+        url = f"https://www.portlandmaps.com/arcgis/rest/services/Public/Boundaries/MapServer/1/query"
 
-        url = f"https://www.portlandmaps.com/arcgis/rest/services/Public/Boundaries/MapServer/1/query?"
-        point = f"{{'x':{longitude},'y':{latitude} }}"
-        parameters ={'geometry': {point}
-            ,'geometryType': 'esriGeometryPoint'
-            ,'inSR': '4326'
-            ,'spatialRel' : 'esriSpatialRelIntersects'
-            ,'distance' : ''
-            ,'units' : 'esriSRUnit_Foot'
-            ,'relationParam' : ''
-            ,'outFields' : ''
-            ,'returnGeometry' : 'false'
-            ,'f' : 'json'
-            }
-
+        parameters = {
+            "geometry": json.dumps({"x": longitude, "y": latitude}),
+            "geometryType": "esriGeometryPoint",
+            "inSR": "4326",
+            "spatialRel": "esriSpatialRelIntersects",
+            "outFields": "NAME",
+            "returnGeometry": "false",
+            "f": "json",
+        }
 
         session = requests.Session()
-        res = session.get(
-            url,
-            headers={"Content-Type": "application/json"},
-            params=parameters
-            )
-        name = ""
+
+        res = session.get(url, params=parameters)
+
+        name = None
+
         if res.status_code != 200:
             raise Failure(
-            description="Get neighborhood error",
-            metadata={
-                "status_code": res.status_code,
-                "url": res.url,
-                "text": res.text,
-                "response": res.json()
-            },
+                description="Get neighborhood error",
+                metadata={
+                    "status_code": res.status_code,
+                    "url": res.url,
+                    "text": res.text,
+                    "response": res.json(),
+                },
             )
+
         data = res.json()
 
-        if data is None:
-            return(name)
-        else:
-            attributes  = data.get("features",[])
-            for attribute in attributes:
-                name = attribute.get("attributes").get("NAME")
-                return name
+        if data:
+            for feature in data.get("features", []):
+                name = feature.get("attributes").get("NAME")
 
-    df["Neighborhood"] = df.apply(lambda x: get_neighborhood(x.Lng,x.Lat),axis=1)
+        return name
+
+    df["Neighborhood"] = df.apply(
+        lambda x: get_neighborhood(x.Lng, x.Lat), axis="columns"
+    )
 
     df["FirstName"] = df["Names"].astype(str).str.split().str[0]
     df["LastName"] = df["Names"].astype(str).str.split().str[1]
@@ -347,7 +343,7 @@ def read_reports(context: OpExecutionContext, path: str):
             "Email",
             "Waived",
             "Occupied",
-            "Neighborhood"
+            "Neighborhood",
         ]
     ]
 
@@ -496,7 +492,11 @@ def create_photo_records(context: OpExecutionContext, zpath: str):
     count_created = 0
     for row in df.itertuples(index=True, name="Panda"):
         cursor = conn.execute(
-            context, "Exec sp_CreateAbCasePhotoZ ?, ?, ? ", row.AbCaseId, row.PhotoFileName, row.PhotoUrl
+            context,
+            "Exec sp_CreateAbCasePhotoZ ?, ?, ? ",
+            row.AbCaseId,
+            row.PhotoFileName,
+            row.PhotoUrl,
         )
         results = cursor.fetchone()
 
@@ -537,6 +537,7 @@ def remove_dir_on_failure(context: HookContext):
 def process_zendesk_data():
     path = get_photo_urls(write_reports(read_reports(fetch_reports())))
     remove_dir(create_photo_records(path))
+
 
 @schedule(
     job=process_zendesk_data,
