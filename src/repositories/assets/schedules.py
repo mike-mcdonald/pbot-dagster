@@ -38,9 +38,6 @@ def create_bridge_eval_config(
             },
             "determine_eval_updates": {
                 "config": {
-                    "datetime": (
-                        context.scheduled_execution_time - timedelta(minutes=10)
-                    ).isoformat(),
                     "destination": os.path.join(store_path, "create_eval_updates.json"),
                 }
             },
@@ -136,24 +133,6 @@ def create_bridge_sync_config(
                     "output": os.path.join(store_path, "extract_public.json"),
                 }
             },
-            # "filter_cgis": {
-            #     "config": {
-            #         "datetime": (
-            #             context.scheduled_execution_time - timedelta(days=1)
-            #         ).isoformat(),
-            #         "destination": os.path.join(store_path, "filter_cgis.json"),
-            #         "field": "last_edited_date",
-            #     }
-            # },
-            # "filter_pbot": {
-            #     "config": {
-            #         "datetime": (
-            #             context.scheduled_execution_time - timedelta(days=1)
-            #         ).isoformat(),
-            #         "destination": os.path.join(store_path, "filter_pbot.json"),
-            #         "field": "ModifiedOn",
-            #     }
-            # },
             "create_cgis_inserts": {
                 "config": {
                     "index_field": "AssetID",
