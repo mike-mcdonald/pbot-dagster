@@ -26,7 +26,11 @@ def sign_library_to_assets():
     refresh_signfaces(start=path)
 
 
-@job
+@job(
+    resource_defs={
+        "io_manager": fs_io_manager,
+    }
+)
 def synchronize_bridge_fields():
     # extract bridge asset from PBOTGISDB
     pbot = extract_asset.alias("extract_pbot")()

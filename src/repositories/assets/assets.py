@@ -6,12 +6,21 @@ from repositories.assets.jobs import (
     update_bridge_evaluations,
 )
 from repositories.assets.schedules import (
-    bridge_daily_schedule,
-    bridge_eval_updates,
+    prod_bridge_eval_schedule,
+    prod_bridge_field_schedule,
+    test_bridge_eval_schedule,
+    test_bridge_field_schedule,
     sign_library_schedule,
 )
 
 DEFINITIONS = Definitions(
     jobs={sign_library_to_assets, synchronize_bridge_fields, update_bridge_evaluations},
-    schedules={bridge_daily_schedule, bridge_eval_updates, sign_library_schedule},
+    resources={},
+    schedules={
+        prod_bridge_eval_schedule,
+        prod_bridge_field_schedule,
+        test_bridge_eval_schedule,
+        test_bridge_field_schedule,
+        sign_library_schedule,
+    },
 )
