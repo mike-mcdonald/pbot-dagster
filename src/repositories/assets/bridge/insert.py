@@ -72,7 +72,8 @@ try:
 
     with arcpy.da.InsertCursor(fc, df.columns.tolist()) as cursor:
         for row in df.itertuples(index=False):
-            cursor.insertRow(row)
+            values = [None if pd.isnull(x) else x for x in row]
+            cursor.insertRow(values)
 
 finally:
     shutil.rmtree(tdir)
