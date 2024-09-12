@@ -71,7 +71,7 @@ try:
     print("Will update {} rows...".format(len(df)))
 
     for row in df.itertuples(index=False):
-        values = [None if x is np.nan else x for x in row]
+        values = [None if pd.isnull(x) else x for x in row]
 
         where_clause = "{} = '{}'".format(
             arcpy.AddFieldDelimiters(fc, "AssetID"), row.AssetID

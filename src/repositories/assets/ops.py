@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 
 from subprocess import run
@@ -176,7 +177,16 @@ def determine_eval_updates(context: OpExecutionContext, path: str) -> str:
 
     grp = df.groupby(["AssetID"])
 
-    df = grp.nth(0).reset_index().drop(columns={"EvaluationType", "EvaluationDate"})
+    df = (
+        grp.nth(0)
+        .reset_index()
+        .drop(
+            columns={
+                "EvaluationType",
+                "EvaluationDate",
+            }
+        )
+    )
 
     df.to_json(context.op_config["destination"], orient="records")
 
@@ -210,11 +220,42 @@ def insert_asset(context: OpExecutionContext, path: str) -> str:
     }
 )
 def update_asset(context: OpExecutionContext, path: str):
-    execute_asset_script(
-        context,
-        context.op_config["feature_class"],
-        path,
-    )
+    df = pd.read_json(path, convert_dates=[], orient="records")
+
+    conn: MSSqlServerResource = MSSqlServerResource(context.op_config["conn_id"])
+
+    with conn.client.cursor() as cursor:
+        for row in df.itertuples(index=False):
+            asset_id = row.AssetID
+            values = list(row)
+
+            columns = df.columns.tolist()
+            geom = None
+
+            if "SHAPE@XY" in columns:
+                geom = values.pop(columns.index("SHAPE@XY"))
+                columns.remove("SHAPE@XY")
+
+            set_stmts = [f"[{c}] = ?" for c in columns]
+
+            if geom:
+                set_stmts.append(
+                    f"[Shape] = geometry::STGeomFromText('POINT({geom[0]} {geom[1]})', 2913)"
+                )
+
+            stmt = f"""
+                update
+                    {context.op_config["feature_class"]}
+                set
+                    {", ".join(set_stmts)}
+                where
+                    [AssetID] = '{asset_id}'
+            """
+
+            cursor.execute(
+                stmt,
+                *[None if pd.isnull(x) else x for x in values],
+            )
 
     return path
 
