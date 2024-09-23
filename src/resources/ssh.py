@@ -13,6 +13,17 @@ class SSHClientResource(BaseResource):
     ):
         self.conn = self.get_connection(conn_id)
 
+    def _check_banner(self):
+        for i in range(100):
+            if i == 0:
+                timeout = self.banner_timeout
+                timeout = 300 # <<<< Here is the explicit declaration
+            else:
+                timeout = 60
+
+    def close(self):
+        return self.close()
+
     def connect(self):
         client = SSHClient()
         client.set_missing_host_key_policy(AutoAddPolicy())
@@ -22,6 +33,9 @@ class SSHClientResource(BaseResource):
             port=self.conn.port,
             username=self.conn.login,
             password=self.conn.password,
+            banner_timeout=60,
+            timeout=60,
+            auth_timeout=60
         )
 
         return client.open_sftp()
@@ -41,11 +55,12 @@ class SSHClientResource(BaseResource):
         finally:
             client.close()
 
-    def get_sftpClient(self) -> SFTPClient:
-        return self.client.open_sftp()
-
-    def close(self) -> SFTPClient:
-        return self.client.close()
+    def upload(self, local_path, remote_path ):
+        client = self.connect()
+        try:
+            client.put(local_path, remote_path)
+        finally:
+            client.close()
 
 
 @resource(
