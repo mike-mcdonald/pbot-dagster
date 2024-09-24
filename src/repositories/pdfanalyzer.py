@@ -1,14 +1,12 @@
 import csv
 import shutil
 import pdfquery
-import os
 import re
 
 from concurrent.futures import ThreadPoolExecutor
 
 from dagster import (
     EnvVar,
-    Failure,
     Field,
     In,
     List,
@@ -24,13 +22,13 @@ from dagster import (
     schedule,
 )
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from dateutil.parser import parse
+from ops.fs.remove import remove_files
 from ops.template import apply_substitutions
-from paramiko import SSHClient, SFTPClient
-from pathlib import Path, PurePath
-from resources.ssh import SSHClientResource, ssh_resource
+from pathlib import Path
+from resources.ssh import ssh_resource
 
 
 def is_date_within_a_year(report_date: str):
@@ -230,12 +228,11 @@ def get_files(context: OpExecutionContext, files: list[dict]):
         "base_path": Field(String, description="Uber or Lyft"),
         "local_csv_file": Field(String, description="Name of Uber or Lyft csv file "),
     },
-    out={
-        "results": Out(List),
-    },
+    out=Out(List[String]),
     required_resource_keys=["ssh_client"],
 )
 def upload_files(context: OpExecutionContext, results: list[dict]):
+    files = []
     base_path = Path(context.op_config["base_path"])
     sftp = context.resources.ssh_client.connect()
     trace = datetime.now()
@@ -249,6 +246,7 @@ def upload_files(context: OpExecutionContext, results: list[dict]):
             )
             context.log.info(f" 🚗 Upload {sourcefile} to {targetfile}")
             sftp.put(sourcefile, targetfile)
+            files.append(str(sourcefile))
 
         #upload csv file
         sourcefile = Path(context.op_config["local_csv_file"])
@@ -260,6 +258,7 @@ def upload_files(context: OpExecutionContext, results: list[dict]):
         # targetfile = Path(context.op_config["base_path"]) / Path("ValidationFolder") / Path(sourcefile).name
         context.log.info(f" 🚗 Analysis file uploaded: {sourcefile} to {targetfile}")
         sftp.put(sourcefile, targetfile)
+        files.append(str(sourcefile))
 
     except Exception as err:
         raise err
@@ -268,7 +267,7 @@ def upload_files(context: OpExecutionContext, results: list[dict]):
 
     context.log.info(f" 🚗 Uploaded {len(results)} files in {datetime.now() - trace}.")
 
-    return results
+    return files
 
 
 @op(
@@ -521,9 +520,7 @@ def get_list(context: OpExecutionContext, download: list[str]):
 )
 def get_all(context: OpExecutionContext):
     import stat
-
-    ssh_client: SSHClientResource = context.resources.ssh_client
-    sftp = ssh_client.connect()
+    sftp = context.resources.ssh_client.connect()
 
     file_list = []
 
@@ -596,7 +593,7 @@ def download_all(context: OpExecutionContext, list_of_list: list[list[str]]):
     config_schema={
         "base": Field(String, description="Upload files to base")
     },
-    out=Out(List),
+    out=Out(List[String]),
     required_resource_keys=["ssh_client"],
 )
 def upload_all(context: OpExecutionContext, local_files: list[str]):
@@ -625,7 +622,7 @@ def upload_all(context: OpExecutionContext, local_files: list[str]):
     config_schema={
         "remote_folder": Field(String, description="Upload files to this folder")
     },
-    out=Out(List),
+    out=Out(List[String]),
     required_resource_keys=["ssh_client"],
 )
 def upload_to_folder(context: OpExecutionContext, local_files: list[str]):
@@ -640,9 +637,9 @@ def upload_to_folder(context: OpExecutionContext, local_files: list[str]):
             remote_path = str(Path(remote_folder)  / Path(f).name)
             context.log.info(f"Upload {f} to {remote_path}")
 
-            def upload(local_path, remote_path, ):
+            def upload(local_path, remote_path):
                 context.resources.ssh_client.upload(local_path, remote_path)
-                return remote_path
+                return local_path
 
             futures.append(executor.submit(upload, f, remote_path))
 
@@ -658,22 +655,46 @@ def upload_to_folder(context: OpExecutionContext, local_files: list[str]):
 
     return files
 
+
+@op(
+    out=Out(
+        List[dict],
+    ),
+    required_resource_keys=["ssh_client"],
+)
+def delete_ftp_files(context: OpExecutionContext, files: list[dict]):
+    trace = datetime.now()
+    try:
+        sftp = context.resources.ssh_client.connect()
+        for row in files:
+            sftp.remove(row["Ftpfile"])
+        context.log.info(
+            f" 🚗 Deleted {len(files)} FTP files in {datetime.now() - trace}."
+        )
+    except Exception as err:
+        context.log.info(f"Fail to delete {row['Ftpfile']}: {err}")
+        raise err
+    finally:
+        sftp.close()
+
+    return files
+
+
+
 @job(
     resource_defs={
         "io_manager": fs_io_manager,
         "ssh_client": ssh_resource,
-    }
+    },
 )
 def process_pdfs():
 
     files = []
     download_files = []
-    backup_files = []
 
     files.append(get_all.alias("get_uber_docs")())
     files.append(get_all.alias("get_lyft_docs")())
     download_files = download_all(files)
-    backup_files = upload_all(download_files)
 
 
     bgc_files = []
@@ -686,16 +707,16 @@ def process_pdfs():
 
     processed_files = rename_files(results)
 
-    uber_files = upload_files.alias("upload_uber")(
+    remove_files.alias("remove_uber")(upload_files.alias("upload_uber")(
         write_csv.alias("write_uber")(get_files.alias("get_uber_files")(processed_files))
-    )
+    ))
 
-    lyft_files = upload_files.alias("upload_lyft")(
+    remove_files.alias("remove_lyft")(upload_files.alias("upload_lyft")(
         write_csv.alias("write_lyft")(get_files.alias("get_lyft_files")(processed_files))
-    )
+    ))
 
-    upload_to_folder.alias("upload_other_uber_files")(get_other_files.alias("other_uber_files")(download_files))
-    upload_to_folder.alias("upload_other_lyft_files")(get_other_files.alias("other_lyft_files")(download_files))
+    remove_files.alias("remove_other_uber")(upload_to_folder.alias("upload_other_uber_files")(get_other_files.alias("other_uber_files")(download_files)))
+    remove_files.alias("remove_other_lyft")(upload_to_folder.alias("upload_other_lyft_files")(get_other_files.alias("other_lyft_files")(download_files)))
 
 @schedule(
     job=process_pdfs,
