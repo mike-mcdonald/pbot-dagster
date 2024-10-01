@@ -1,9 +1,7 @@
 from contextlib import contextmanager
-from dagster import OpExecutionContext, resource
+from dagster import resource
 from paramiko import AutoAddPolicy, SFTPClient, SSHClient
 from resources.base import BaseResource
-from textwrap import dedent
-from typing import List
 
 
 class SSHClientResource(BaseResource):
@@ -12,6 +10,9 @@ class SSHClientResource(BaseResource):
         conn_id,
     ):
         self.conn = self.get_connection(conn_id)
+
+    def close(self):
+        return self.client.close()
 
     def connect(self):
         client = SSHClient()
@@ -27,25 +28,29 @@ class SSHClientResource(BaseResource):
         return client.open_sftp()
 
     def download(self, remote_path, local_path):
-        client = self.connect()
-        try:
+        with self.connect() as client:
             client.get(remote_path, local_path)
-        finally:
-            client.close()
 
     def list(self, path):
-        client = self.connect()
-        try:
-            # do work
-            return client.listdir(path)
-        finally:
-            client.close()
+        with self.connect() as client:
+            return [f for f in client.listdir_iter(path)]
 
-    def get_sftpClient(self) -> SFTPClient:
-        return self.client.open_sftp()
+    def list_iter(self, path):
+        with self.connect() as client:
+            for f in client.listdir_iter(path):
+                yield f
 
-    def close(self) -> SFTPClient:
-        return self.client.close()
+    def move(self, from_path: str, to_path: str):
+        with self.connect() as client:
+            client.rename(from_path, to_path)
+
+    def put(self, local_path: str, remote_path: str):
+        with self.connect() as client:
+            client.put(local_path, remote_path)
+
+    def remove(self, path):
+        with self.connect() as client:
+            client.remove(path)
 
 
 @resource(
