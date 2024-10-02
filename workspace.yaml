@@ -1,34 +1,37 @@
 load_from:
   - python_file:
-      relative_path: src/repositories/assets/assets.py
-      working_directory: src
-  - python_file:
-      relative_path: src\repositories\fleetaware.py
-      working_directory: src
-  - python_file:
-      relative_path: src\repositories\retentions.py
-      working_directory: src
-  - python_file:
-      relative_path: src\repositories\abautos.py
-      working_directory: src
-  - python_file:
-      relative_path: src/repositories/tests.py
-      working_directory: src
-  - python_file:
-      relative_path: src/repositories/connections.py
-      working_directory: src
-  - python_file:
-      relative_path: src\repositories\pdfanalyzer.py
-      working_directory: src
-  - python_file:
-      relative_path: src/repositories/pfht_to_twilight.py
+      relative_path: src/repositories/abautos.py
       working_directory: src
   - python_file:
       relative_path: src/repositories/amanda_to_twilight.py
+      working_directory: src
+  - python_file:
+      relative_path: src/repositories/assets/assets.py
+      working_directory: src
+  - python_file:
+      relative_path: src/repositories/connections.py
       working_directory: src
   - python_file:
       relative_path: src/repositories/elavon_to_twilight.py
       working_directory: src
   - python_file:
       relative_path: src/repositories/enforcement/enforcement.py
+      working_directory: src
+  - python_file:
+      relative_path: src/repositories/fleetaware.py
+      working_directory: src
+  - python_file:
+      relative_path: src/repositories/retentions.py
+      working_directory: src
+  - python_file:
+      relative_path: src/repositories/pdfanalyzer.py
+      working_directory: src
+  - python_file:
+      relative_path: src/repositories/pfht_to_twilight.py
+      working_directory: src
+  - python_file:
+      relative_path: src/repositories/regulatory/regulatory.py
+      working_directory: src
+  - python_file:
+      relative_path: src/repositories/tests.py
       working_directory: src
