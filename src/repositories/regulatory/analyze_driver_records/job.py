@@ -3,9 +3,12 @@ from dagster import (
     job,
 )
 
+from ops.df.filter import filter_dataframe
 from ops.df.write import write_dataframe
+from ops.fs.remove import remove_dir_config
 from ops.sftp.list import list_dynamic
 from ops.sftp.move import move
+from ops.sftp.put import put
 from resources.ssh import ssh_resource
 from .ops.analyze_files import analyze_files
 from .ops.combine_dataframe import combine_dataframes
@@ -18,11 +21,10 @@ from .ops.get_file_dataframe import get_file_dataframe
 @job(
     resource_defs={
         "io_manager": fs_io_manager,
-        "ssh_client": ssh_resource,
+        "sftp": ssh_resource,
     }
 )
 def analyze_driver_records():
-
     files = []
     files.append(get_file_dataframe.alias("get_lyft_files")())
     files.append(get_file_dataframe.alias("get_uber_files")())
@@ -51,35 +53,25 @@ def analyze_driver_records():
         )
     )
 
-    execute_renames(
-        create_rename_dataframe(
-            all_files, combine_dataframes.alias("combine_analysis")(analysis)
-        )
+    renames = create_rename_dataframe(
+        all_files, combine_dataframes.alias("combine_analysis")(analysis)
     )
 
-    lyft_csv = list_dynamic.alias("list_lyft_csv")().map(move.alias("move_lyft_csv"))
-    uber_csv = list_dynamic.alias("list_uber_csv")().map(move.alias("move_uber_csv"))
+    remove_dir_config.alias("cleanup_dir")(
+        [
+            execute_renames(renames),
+            put.alias("put_lyft_results")(
+                write_dataframe.alias("write_lyft_results")(
+                    filter_dataframe.alias("filter_lyft_results")(renames)
+                )
+            ),
+            put.alias("put_uber_results")(
+                write_dataframe.alias("write_uber_results")(
+                    filter_dataframe.alias("filter_uber_results")(renames)
+                )
+            ),
+        ]
+    )
 
-    # results = []
-    # results.append(analyze_bgcfiles(download_files.alias("download_bgc")(files)))
-    # results.append(analyze_dmvfiles(download_files.alias("download_dmv")(dmv_files)))
-
-    # all_files = rename_files(results)
-
-    # uber_files = upload_files.alias("upload_uber")(
-    #     write_csv.alias("write_uber")(get_files.alias("get_uber_files")(all_files))
-    # )
-    # get_other_files.alias("get_uber_other_file")(
-    #     get_unique_ids.alias("get_unique_uber_id")(uber_files)
-    # )
-    # # move_files.alias("move_uber_other")( get_other_file.alias("get_uber_other_file")(get_unique_id.alias("get_unique_uber_id")(uber_files)))
-    # lyft_files = upload_files.alias("upload_lyft")(
-    #     write_csv.alias("write_lyft")(get_files.alias("get_lyft_files")(all_files))
-    # )
-    # get_other_files.alias("get_lyft_other_file")(
-    #     get_unique_ids.alias("get_unique_lyft_id")(lyft_files)
-    # )
-    # # move_files.alias("move_lyft_other")(get_other_file.alias("get_lyft_other_file")(get_unique_id.alias("get_unique_lyft_id")(lyft_files)))
-
-    # # delete_files.alias("delete_uber")(uber_files)
-    # # delete_files.alias("delete_lyft")(lyft_files)
+    list_dynamic.alias("list_lyft_csv")().map(move.alias("move_lyft_csv"))
+    list_dynamic.alias("list_uber_csv")().map(move.alias("move_uber_csv"))

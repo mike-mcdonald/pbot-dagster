@@ -19,13 +19,13 @@ COMMON_CONFIG = dict(
             String, description="Full path to directory where file will move to."
         )
     },
-    required_resource_keys=["ssh_client"],
+    required_resource_keys=["sftp"],
 )
 
 
 @op(**COMMON_CONFIG)
 def move(context: OpExecutionContext, file: str) -> str:
-    resource: SSHClientResource = context.resources.ssh_client
+    resource: SSHClientResource = context.resources.sftp
     new_path = os.path.join(context.op_config["path"], os.path.basename(file))
 
     context.log.info(f"Will move '{file}' to '{new_path}'...")

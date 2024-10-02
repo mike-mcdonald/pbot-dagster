@@ -171,7 +171,7 @@ def analyze_sambasystems_file(file: str) -> tuple[bool, str]:
             description="Which method of analysis to use. Either 'status' or 'violations'",
         )
     },
-    required_resource_keys=["ssh_client"],
+    required_resource_keys=["sftp"],
 )
 def analyze_files(context: OpExecutionContext, data: list[dict]) -> list[dict]:
     analysis_callable = (

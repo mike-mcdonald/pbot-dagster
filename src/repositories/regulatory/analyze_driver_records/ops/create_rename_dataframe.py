@@ -16,24 +16,31 @@ from dagster import Array, Field, op, OpExecutionContext, String
 def create_rename_dataframe(
     context: OpExecutionContext, files: list[dict], analysis: list[dict]
 ) -> list[dict]:
-    df = pd.DataFrame.from_records(files).merge(
-        pd.DataFrame.from_records(analysis)[["remote_path", "result", "analysis"]],
-        how="left",
-        on=["remote_path"],
-    )
+    df = pd.DataFrame.from_records(files)
 
-    def rename(remote_path: str, result: Optional[str]) -> str:
-        p = Path(remote_path)
+    df["rename_path"] = pd.Series(None)
 
-        filename = p.stem
-        if not pd.isnull(result):
-            filename += f"_{result}"
-        filename += p.suffix
+    if len(analysis):
+        df = df.merge(
+            pd.DataFrame.from_records(analysis)[
+                ["remote_path", "result", "report_date", "analysis"]
+            ],
+            how="left",
+            on=["remote_path"],
+        )
 
-        return str(p.parent.joinpath(*context.op_config["paths"], filename))
+        def rename(remote_path: str, result: Optional[str]) -> str:
+            p = Path(remote_path)
 
-    df["rename_path"] = df.apply(
-        lambda x: rename(x.remote_path, x.result), axis="columns"
-    )
+            filename = p.stem
+            if not pd.isnull(result):
+                filename += f"_{result}"
+            filename += p.suffix
+
+            return str(p.parent.joinpath(*context.op_config["paths"], filename))
+
+        df["rename_path"] = df.apply(
+            lambda x: rename(x.remote_path, x.result), axis="columns"
+        )
 
     return df.to_dict(orient="records")

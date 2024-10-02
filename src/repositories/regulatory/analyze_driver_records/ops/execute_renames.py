@@ -7,11 +7,15 @@ from paramiko import SFTPClient
 from dagster import op, OpExecutionContext
 
 
-@op(required_resource_keys={"ssh_client"})
+@op(required_resource_keys={"sftp"})
 def execute_renames(context: OpExecutionContext, renames: list[dict]) -> list[dict]:
     df = pd.DataFrame.from_records(renames)
 
-    client: SFTPClient = context.resources.ssh_client.connect()
+    if not len(df):
+        context.log.warning("No files to rename!")
+        return []
+
+    client: SFTPClient = context.resources.sftp.connect()
 
     trace = datetime.now()
 
