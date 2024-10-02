@@ -1,6 +1,6 @@
 from contextlib import contextmanager
 from dagster import resource
-from paramiko import AutoAddPolicy, SFTPClient, SSHClient
+from paramiko import AutoAddPolicy, SSHClient
 from resources.base import BaseResource
 
 
@@ -11,10 +11,7 @@ class SSHClientResource(BaseResource):
     ):
         self.conn = self.get_connection(conn_id)
 
-    def close(self):
-        return self.client.close()
-
-    def connect(self):
+    def connect(self, **kwargs):
         client = SSHClient()
         client.set_missing_host_key_policy(AutoAddPolicy())
 
@@ -23,6 +20,7 @@ class SSHClientResource(BaseResource):
             port=self.conn.port,
             username=self.conn.login,
             password=self.conn.password,
+            **kwargs
         )
 
         return client.open_sftp()

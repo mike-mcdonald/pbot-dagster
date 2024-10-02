@@ -1,14 +1,12 @@
 import csv
 import shutil
 import pdfquery
-import os
 import re
 
 from concurrent.futures import ThreadPoolExecutor
 
 from dagster import (
     EnvVar,
-    Failure,
     Field,
     In,
     List,
@@ -24,13 +22,13 @@ from dagster import (
     schedule,
 )
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from dateutil.parser import parse
+from ops.fs.remove import remove_files
 from ops.template import apply_substitutions
-from paramiko import SSHClient, SFTPClient
 from pathlib import Path
-from resources.ssh import SSHClientResource, ssh_resource
+from resources.ssh import ssh_resource
 
 
 def is_date_within_a_year(report_date: str):
@@ -187,35 +185,26 @@ def is_other_file(filename: str, ids: list[str]):
 
 
 @op(
-    config_schema={
-        "base_path": Field(String, description="Uber / Lyft files location"),
-    },
+    config_schema={"driver_co": Field(String, description="Uber or Lyft")},
     out=Out(
         List[String],
     ),
     required_resource_keys=["ssh_client"],
 )
-def get_other_files(context: OpExecutionContext, ids: list[str]):
+def get_other_files(context: OpExecutionContext, allfiles: list[str]):
+    other = []
+    driver_co = context.op_config["driver_co"]
     trace = datetime.now()
-    try:
-        ssh_client: SSHClientResource = context.resources.ssh_client
-        sftp = ssh_client.get_sftpClient()
-        sftp.chdir(None)
-        sftp.chdir(context.op_config["base_path"])
-        filenames = sftp.listdir()  # Get list of files in the current directory
-        file_list = []
-        if len(filenames) > 0:
-            for filename in filenames:
-                if is_other_file(filename, ids):
-                    file = os.path.join(context.op_config["base_path"], filename)
-                    file_list.append(file)
-        context.log.info(
-            f" 🚗 Get other files: {len(file_list)} in {datetime.now() - trace}."
-        )
-    except Exception as err:
-        context.log.info(f"Fail to get other files {filename}: {err}")
-        raise err
-    return file_list
+    process_files = ["_BGC.pdf$", "_MVR.pdf$", "_DMV.pdf$"]
+    for filename in allfiles:
+        if find_pattern(filename) is None:
+            if driver_co in filename:
+                other.append(filename)
+
+    context.log.info(
+        f" 🚗 Get other files  for {driver_co}: {len(other)} in {datetime.now() - trace}."
+    )
+    return other
 
 
 @op(
@@ -235,117 +224,46 @@ def get_files(context: OpExecutionContext, files: list[dict]):
 
 
 @op(
-    out=Out(
-        List,
-    ),
-    required_resource_keys=["ssh_client"],
-)
-def delete_files(context: OpExecutionContext, results: list[dict]):
-    trace = datetime.now()
-    try:
-        ssh_client: SSHClientResource = context.resources.ssh_client
-        sftp = ssh_client.get_sftpClient()
-        sftp.chdir(None)
-        for row in results:
-            sftp.remove(row["Ftpfile"])
-        context.log.info(
-            f" 🚗 Deleted {len(results)} files in {datetime.now() - trace}."
-        )
-    except Exception as err:
-        context.log.info(f"Fail to delete {row['Ftpfile']}: {err}")
-        raise err
-    return results
-
-
-@op(
-    config_schema={
-        "base_path": Field(String, description="Uber / Lyft files location"),
-    },
-    out=Out(
-        List[String],
-    ),
-    required_resource_keys=["ssh_client"],
-)
-def move_files(context: OpExecutionContext, filenames: list[str]):
-    trace = datetime.now()
-    try:
-        ssh_client: SSHClientResource = context.resources.ssh_client
-        sftp = ssh_client.get_sftpClient()
-        sftp.chdir(None)
-        sftp.chdir(context.op_config["base_path"])
-        for filename in filenames:
-            targetfile = (
-                Path(context.op_config["base_path"])
-                / Path("ValidationFolder")
-                / Path(filename).name
-            )
-            sftp.rename(str(filename), str(targetfile))
-        context.log.info(
-            f" 🚗 Moving {len(filenames)} other files from {context.op_config['base_path']} to ValidationFolder in {datetime.now() - trace}."
-        )
-    except Exception as err:
-        context.log.info(f"Fail to move other file: {filename}: {err}")
-        raise err
-    return filenames
-
-
-@op(
-    out={
-        "unique_ids": Out(List),
-    },
-    required_resource_keys=["ssh_client"],
-)
-def get_unique_ids(context: OpExecutionContext, files: list[dict]):
-    id_list = []
-    for row in files:
-        id_list.append(str(Path(row["Ftpfile"]).name).split("_")[0])
-    unique_list = list(set(id_list))
-    context.log.info(f" 🚗 {unique_list}")
-    return unique_list
-
-
-@op(
     config_schema={
         "base_path": Field(String, description="Uber or Lyft"),
         "local_csv_file": Field(String, description="Name of Uber or Lyft csv file "),
     },
-    out={
-        "results": Out(List),
-    },
+    out=Out(List[String]),
     required_resource_keys=["ssh_client"],
 )
 def upload_files(context: OpExecutionContext, results: list[dict]):
+    files = []
+    base_path = Path(context.op_config["base_path"])
+    sftp = context.resources.ssh_client.connect()
     trace = datetime.now()
     try:
-        ssh_client: SSHClientResource = context.resources.ssh_client
-        sftp = ssh_client.get_sftpClient()
-        sftp.chdir(None)
         for row in results:
             sourcefile = Path(row["Renamedfile"])
-            targetfile = (
-                Path(row["Ftpfile"]).parent
+            targetfile = str(
+                Path(base_path)
                 / Path("ValidationFolder")
                 / Path(row["Renamedfile"]).name
             )
             context.log.info(f" 🚗 Upload {sourcefile} to {targetfile}")
-            sftp.put(sourcefile, str(targetfile))
-        context.log.info(
-            f" 🚗 Uploaded {len(results)} files in {datetime.now() - trace}."
-        )
+            sftp.put(sourcefile, targetfile)
+            files.append(str(sourcefile))
 
+        # upload csv file
         sourcefile = Path(context.op_config["local_csv_file"])
-        targetfile = (
-            Path(context.op_config["base_path"])
-            / Path("ResultFolder")
-            / Path(sourcefile).name
-        )
+        targetfile = str(Path(base_path) / Path("ResultFolder") / Path(sourcefile).name)
         # targetfile = Path(context.op_config["base_path"]) / Path("ValidationFolder") / Path(sourcefile).name
-        context.log.info(f" 🚗 Analysis file: {sourcefile} to {targetfile}")
-        sftp.put(sourcefile, str(targetfile))
+        context.log.info(f" 🚗 Analysis file uploaded: {sourcefile} to {targetfile}")
+        sftp.put(sourcefile, targetfile)
+        files.append(str(sourcefile))
+
     except Exception as err:
-        context.log.info(f"Fail to upload {sourcefile} to {targetfile}: {err}")
         raise err
-    return results
+    finally:
+        sftp.close()
+
+    context.log.info(f" 🚗 Uploaded {len(results)} files in {datetime.now() - trace}.")
+
+    return files
 
 
 @op(
@@ -379,151 +297,196 @@ def write_csv(context: OpExecutionContext, records: list[dict]):
     ),
 )
 def rename_files(context: OpExecutionContext, list_of_list: list[list[dict]]):
-    file_list = []
-    if len(list_of_list) > 0:
-        for results in list_of_list:
-            if len(results) > 0:
-                context.log.info(f" 🚗 Renaming: {results}")
-                try:
-                    for row in results:
-                        sourcefile = Path(row["Localfile"])
-                        targetfile = Path(row["Renamedfile"])
-                        shutil.move(sourcefile, targetfile)
-                        file_list.append(row)
-                except:
-                    raise Exception
-    return file_list
+
+    files = []
+    for l in list_of_list:
+        files.extend(l)
+
+    if len(files) > 0:
+        # context.log.info(f" 🚗 Renaming: {results}")
+        try:
+            for row in files:
+                sourcefile = Path(row["Localfile"])
+                targetfile = Path(row["Renamedfile"])
+                shutil.move(sourcefile, targetfile)
+        except:
+            raise Exception
+    return files
 
 
 @op(
-    config_schema={
-        "download_path": Field(String, description="Download files to this location")
-    },
-    ins={
-        "download_files": In(List, description="List of files downloaded"),
-    },
     out=Out(List),
 )
-def analyze_bgcfiles(context: OpExecutionContext, download_files: list[str]):
+def analyze_bgcfiles(context: OpExecutionContext, list_of_list: list[list[str]]):
     results = []
-    trace = datetime.now()
-    if len(download_files) > 0:
-        filecount = 0
-        for ftpfile in download_files:
-            localfile = Path(context.op_config["download_path"]) / Path(ftpfile)
-            match_filename = find_pattern(ftpfile)
-            status = False
-            analysis = []
-            reportdate = None
-            status, reason = find_status(localfile)
-            analysis.append(reason)
-            reportdate = report_completeddate(localfile)
-            if reportdate is None:
-                reason = "Unable to process date"
-                status = False
-                analysis.append(reason)
-            elif not is_date_within_a_year(reportdate):
-                reason = " Report date is older than 1 year"
-                status = False
-                analysis.append(reason)
-            if status:
-                pass_filename = match_filename.split(".")[0] + "_Pass" + ".pdf"
-                renamedfile = re.sub(
-                    match_filename, pass_filename, str(localfile), flags=re.IGNORECASE
-                )
-                results.append(
-                    {
-                        "Ftpfile": ftpfile,
-                        "Localfile": str(localfile),
-                        "Status": "Pass",
-                        "Renamedfile": renamedfile,
-                        "Reportdate": reportdate,
-                        "Analysis": "; ".join(analysis),
-                    }
-                )
-            else:
-                fail_filename = match_filename.split(".")[0] + "_Fail" + ".pdf"
-                renamedfile = re.sub(
-                    match_filename, fail_filename, str(localfile), flags=re.IGNORECASE
-                )
-                results.append(
-                    {
-                        "Ftpfile": ftpfile,
-                        "Localfile": str(localfile),
-                        "Status": "Fail",
-                        "Renamedfile": renamedfile,
-                        "Reportdate": reportdate,
-                        "Analysis": "; ".join(analysis),
-                    }
-                )
-            filecount += 1
+    futures = []
+    bgc_list = []
+
+    for l in list_of_list:
+        bgc_list.extend(l)
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        trace = datetime.now()
+        context.log.info(f" 🚗 Count bgc files: {len(bgc_list)}")
+        if len(bgc_list) > 0:
+            for localfile in bgc_list:
+
+                def analyze(localfile):
+                    match_filename = find_pattern(localfile)
+                    context.log.info(f" 🚗 Analyzing bgc {localfile}")
+                    dir = Path(localfile).parent.name
+                    # split Path(dir) because using Path(localfile).parent.name / Path(localfile).name will fail
+                    ftpfile = Path(dir) / Path(localfile).name
+                    localfile = Path(localfile)
+                    if match_filename is None:
+                        context.log.info(
+                            f" 🚗 filename does not match _BGC, MVR or DMV.pdf"
+                        )
+                    status = False
+                    analysis = []
+                    reportdate = None
+                    status, reason = find_status(localfile)
+                    analysis.append(reason)
+                    reportdate = report_completeddate(localfile)
+                    if reportdate is None:
+                        reason = "Unable to process date"
+                        status = False
+                        analysis.append(reason)
+                    elif not is_date_within_a_year(reportdate):
+                        reason = " Report date is older than 1 year"
+                        status = False
+                        analysis.append(reason)
+                    if status:
+                        pass_filename = match_filename.split(".")[0] + "_Pass" + ".pdf"
+                        renamedfile = re.sub(
+                            match_filename,
+                            pass_filename,
+                            str(localfile),
+                            flags=re.IGNORECASE,
+                        )
+                        result = {
+                            "Ftpfile": str(ftpfile),
+                            "Localfile": str(localfile),
+                            "Status": "Pass",
+                            "Renamedfile": renamedfile,
+                            "Reportdate": reportdate,
+                            "Analysis": "; ".join(analysis),
+                        }
+                        return result
+                    else:
+                        fail_filename = match_filename.split(".")[0] + "_Fail" + ".pdf"
+                        renamedfile = re.sub(
+                            match_filename,
+                            fail_filename,
+                            str(localfile),
+                            flags=re.IGNORECASE,
+                        )
+                        result = {
+                            "Ftpfile": str(ftpfile),
+                            "Localfile": str(localfile),
+                            "Status": "Fail",
+                            "Renamedfile": renamedfile,
+                            "Reportdate": reportdate,
+                            "Analysis": "; ".join(analysis),
+                        }
+                        return result
+
+                futures.append(executor.submit(analyze, localfile))
+
+            for future in futures:
+                try:
+                    results.append(future.result())
+                except Exception as err:
+                    executor.shutdown(cancel_futures=True, wait=True)
+                    raise err
+
     context.log.info(f" 🚗 Analyzed BGC-MVR: {results}")
     context.log.info(f"Checked {len(results)} new files in {datetime.now() - trace}.")
     return results
 
 
 @op(
-    config_schema={
-        "download_path": Field(String, description="Download files to this location")
-    },
     ins={
         "download_files": In(List, description="List of files downloaded"),
     },
     out=Out(List),
 )
 def analyze_dmvfiles(context: OpExecutionContext, download_files: list[str]):
+    futures = []
     results = []
-    trace = datetime.now()
-    if len(download_files) > 0:
-        filecount = 0
-        for ftpfile in download_files:
-            localfile = Path(context.op_config["download_path"]) / Path(ftpfile)
-            match_filename = find_pattern(ftpfile)
-            status = False
-            analysis = []
-            reportdate = None
-            status, reason = find_violations(localfile)
-            analysis.append(reason)
-            reportdate = report_orderdate(localfile)
-            if reportdate is None:
-                reason = "Unable to process date"
-                status = False
-                analysis.append(reason)
-            elif not is_date_within_a_year(reportdate):
-                reason = " Report date is older than 1 year"
-                status = False
-                analysis.append(reason)
-            if status:
-                pass_filename = match_filename.split(".")[0] + "_Pass" + ".pdf"
-                renamedfile = re.sub(
-                    match_filename, pass_filename, str(localfile), flags=re.IGNORECASE
-                )
-                results.append(
-                    {
-                        "Ftpfile": ftpfile,
-                        "Localfile": str(localfile),
-                        "Status": "Pass",
-                        "Renamedfile": renamedfile,
-                        "Reportdate": reportdate,
-                        "Analysis": "; ".join(analysis),
-                    }
-                )
-            else:
-                fail_filename = match_filename.split(".")[0] + "_Fail" + ".pdf"
-                renamedfile = re.sub(
-                    match_filename, fail_filename, str(localfile), flags=re.IGNORECASE
-                )
-                results.append(
-                    {
-                        "Ftpfile": ftpfile,
-                        "Localfile": str(localfile),
-                        "Status": "Fail",
-                        "Renamedfile": renamedfile,
-                        "Reportdate": reportdate,
-                        "Analysis": "; ".join(analysis),
-                    }
-                )
-            filecount += 1
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        trace = datetime.now()
+        if len(download_files) > 0:
+
+            for localfile in download_files:
+
+                def analyze(localfile):
+                    # input for find_pattern is type string
+                    match_filename = find_pattern(localfile)
+                    context.log.info(f" 🚗 Analyzing {localfile}")
+                    dir = Path(localfile).parent.name
+                    # split Path(dir) because using Path(localfile).parent.name / Path(localfile).name will fail
+                    ftpfile = Path(dir) / Path(localfile).name
+                    localfile = Path(localfile)
+                    status = False
+                    analysis = []
+                    reportdate = None
+                    status, reason = find_violations(localfile)
+                    analysis.append(reason)
+                    reportdate = report_orderdate(localfile)
+                    if reportdate is None:
+                        reason = "Unable to process date"
+                        status = False
+                        analysis.append(reason)
+                    elif not is_date_within_a_year(reportdate):
+                        reason = " Report date is older than 1 year"
+                        status = False
+                        analysis.append(reason)
+                    if status:
+                        pass_filename = match_filename.split(".")[0] + "_Pass" + ".pdf"
+                        renamedfile = re.sub(
+                            match_filename,
+                            pass_filename,
+                            str(localfile),
+                            flags=re.IGNORECASE,
+                        )
+                        result = {
+                            "Ftpfile": str(ftpfile),
+                            "Localfile": str(localfile),
+                            "Status": "Pass",
+                            "Renamedfile": renamedfile,
+                            "Reportdate": reportdate,
+                            "Analysis": "; ".join(analysis),
+                        }
+                        return result
+                    else:
+                        fail_filename = match_filename.split(".")[0] + "_Fail" + ".pdf"
+                        renamedfile = re.sub(
+                            match_filename,
+                            fail_filename,
+                            str(localfile),
+                            flags=re.IGNORECASE,
+                        )
+                        result = {
+                            "Ftpfile": str(ftpfile),
+                            "Localfile": str(localfile),
+                            "Status": "Fail",
+                            "Renamedfile": renamedfile,
+                            "Reportdate": reportdate,
+                            "Analysis": "; ".join(analysis),
+                        }
+                        return result
+
+                futures.append(executor.submit(analyze, localfile))
+
+            for future in futures:
+                try:
+                    results.append(future.result())
+                except Exception as err:
+                    executor.shutdown(cancel_futures=True, wait=True)
+                    raise err
+
     context.log.info(f" 🚗 Analyzed DMV: {results}")
     context.log.info(f"Checked {len(results)} new files in {datetime.now() - trace}.")
     return results
@@ -531,50 +494,6 @@ def analyze_dmvfiles(context: OpExecutionContext, download_files: list[str]):
 
 @op(
     config_schema={
-        "download_path": Field(String, description="Download files to this location")
-    },
-    out=Out(
-        List[String],
-    ),
-    required_resource_keys=["ssh_client"],
-)
-def download_files(context: OpExecutionContext, list_of_list: list[list[str]]):
-    futures = []
-    files = []
-
-    downloads = []
-    for l in list_of_list:
-        downloads.extend(l)
-
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        trace = datetime.now()
-
-        for f in downloads:
-            download_path = Path(context.op_config["download_path"]) / Path(f).parent
-            download_path.mkdir(parents=True, exist_ok=True)
-            download_filename = download_path / Path(f).name
-
-            def download(remote_path, local_path):
-                context.resources.ssh_client.download(remote_path, local_path)
-                return local_path
-
-            futures.append(executor.submit(download, f, download_filename))
-
-        for future in futures:
-            try:
-                files.append(future.result())
-            except Exception as err:
-                executor.shutdown(cancel_futures=True, wait=True)
-                raise err
-
-        context.log.info(f"Downloading {len(downloads)} took {datetime.now() - trace}")
-
-    return files
-
-
-@op(
-    config_schema={
-        "base_path": Field(String, description="Uber / Lyft files location"),
         "match_filename": Field(
             String, description="match this filename for *bgc.pdf or *mvr.pdf files"
         ),
@@ -582,67 +501,244 @@ def download_files(context: OpExecutionContext, list_of_list: list[list[str]]):
     out=Out(
         List[String],
     ),
+)
+def get_list(context: OpExecutionContext, download: list[str]):
+
+    files = []
+
+    try:
+        for file in download:
+            if re.search(context.op_config["match_filename"], file):
+                files.append(file)
+        context.log.info(
+            f" 🚗  {len(files)} files matching {context.op_config['match_filename']} "
+        )
+    except Exception as err:
+        raise err
+
+    return files
+
+
+@op(
+    config_schema={
+        "base_path": Field(String, description="Uber / Lyft files location"),
+    },
+    out=Out(List[String]),
     required_resource_keys=["ssh_client"],
 )
-def get_list(context: OpExecutionContext):
-    ssh_client: SSHClientResource = context.resources.ssh_client
+def get_all(context: OpExecutionContext):
+    import stat
+
+    sftp = context.resources.ssh_client.connect()
 
     file_list = []
 
     try:
-        for filename in ssh_client.list(context.op_config["base_path"]):
-            if re.search(context.op_config["match_filename"], filename):
-                file = os.path.join(context.op_config["base_path"], filename)
-                file_list.append(file)
+        sftp.chdir(context.op_config["base_path"])
+        for filename in sftp.listdir():
+            current_stat = sftp.stat(filename)
+            if stat.S_ISREG(current_stat.st_mode):
+                file = Path(context.op_config["base_path"]) / Path(filename)
+                file_list.append(str(file))
         context.log.info(
-            f" 🚗 {context.op_config['base_path']} has {len(file_list)} files matching {context.op_config['match_filename']} "
+            f" 🚗 {context.op_config['base_path']} has {len(file_list)} files. "
         )
     except Exception as err:
-        context.log.error()
         raise err
+    finally:
+        sftp.close()
 
+    context.log.info(f" 🚗 {file_list} ")
     return file_list
+
+
+@op(
+    config_schema={
+        "exec_path": Field(String, description="Download files to this location")
+    },
+    out=Out(List),
+    required_resource_keys=["ssh_client"],
+)
+def download_all(context: OpExecutionContext, list_of_list: list[list[str]]):
+    futures = []
+    files = []
+
+    downloads = []
+    for l in list_of_list:
+        downloads.extend(l)
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        trace = datetime.now()
+
+        for file in downloads:
+            download_path = Path(context.op_config["exec_path"]) / Path(file).parent
+            download_path.mkdir(parents=True, exist_ok=True)
+            download_filename = download_path / Path(file).name
+
+            def download(remote_path, local_path):
+                context.log.info(f"Downloading {remote_path}")
+                context.resources.ssh_client.download(remote_path, local_path)
+                return local_path
+
+            futures.append(executor.submit(download, file, download_filename))
+
+        for future in futures:
+            try:
+                files.append(str(future.result()))
+            except Exception as err:
+                executor.shutdown(cancel_futures=True, wait=True)
+                raise err
+
+        context.log.info(
+            f"Downloading {len(downloads)} files took {datetime.now() - trace}"
+        )
+        context.log.info(f" 🚗 Local files: {files} ")
+    return files
+
+
+@op(
+    config_schema={"base": Field(String, description="Upload files to base")},
+    out=Out(List[String]),
+    required_resource_keys=["ssh_client"],
+)
+def upload_all(context: OpExecutionContext, local_files: list[str]):
+    backup_files = []
+    base = context.op_config["base"]
+    sftp = context.resources.ssh_client.connect()
+    trace = datetime.now()
+    try:
+
+        for f in local_files:
+            remote_path = str(Path(base) / Path(f).parent.name / Path(f).name)
+            context.log.info(f"Upload {f} to {remote_path}")
+            backup_files.append(remote_path)
+            sftp.put(f, remote_path)
+    except Exception as err:
+        raise err
+    finally:
+        sftp.close()
+
+    context.log.info(
+        f"Uploading {len(local_files)} files took {datetime.now() - trace}"
+    )
+
+    return backup_files
+
+
+@op(
+    config_schema={
+        "remote_folder": Field(String, description="Upload files to this folder")
+    },
+    out=Out(List[String]),
+    required_resource_keys=["ssh_client"],
+)
+def upload_to_folder(context: OpExecutionContext, local_files: list[str]):
+    futures = []
+    files = []
+    remote_folder = context.op_config["remote_folder"]
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        trace = datetime.now()
+
+        for f in local_files:
+            remote_path = str(Path(remote_folder) / Path(f).name)
+            context.log.info(f"Upload {f} to {remote_path}")
+
+            def upload(local_path, remote_path):
+                context.resources.ssh_client.upload(local_path, remote_path)
+                return local_path
+
+            futures.append(executor.submit(upload, f, remote_path))
+
+        for future in futures:
+            try:
+                files.append(str(future.result()))
+            except Exception as err:
+                executor.shutdown(cancel_futures=True, wait=True)
+                raise err
+
+        context.log.info(
+            f"Uploading {len(local_files)} files took {datetime.now() - trace}"
+        )
+
+    return files
+
+
+@op(
+    out=Out(
+        List[dict],
+    ),
+    required_resource_keys=["ssh_client"],
+)
+def delete_ftp_files(context: OpExecutionContext, files: list[dict]):
+    trace = datetime.now()
+    try:
+        sftp = context.resources.ssh_client.connect()
+        for row in files:
+            sftp.remove(row["Ftpfile"])
+        context.log.info(
+            f" 🚗 Deleted {len(files)} FTP files in {datetime.now() - trace}."
+        )
+    except Exception as err:
+        context.log.info(f"Fail to delete {row['Ftpfile']}: {err}")
+        raise err
+    finally:
+        sftp.close()
+
+    return files
 
 
 @job(
     resource_defs={
         "io_manager": fs_io_manager,
         "ssh_client": ssh_resource,
-    }
+    },
 )
 def process_pdfs():
 
     files = []
-    files.append(get_list.alias("get_uber_bgc")())
-    files.append(get_list.alias("get_lyft_bgc")())
-    files.append(get_list.alias("get_uber_mvr")())
+    download_files = []
 
-    dmv_files = []
-    dmv_files.append(get_list.alias("get_lyft_dmv")())
+    files.append(get_all.alias("get_uber_docs")())
+    files.append(get_all.alias("get_lyft_docs")())
+    download_files = download_all(files)
+
+    bgc_files = []
+    bgc_files.append(get_list.alias("get_bgc")(download_files))
+    bgc_files.append(get_list.alias("get_mvr")(download_files))
 
     results = []
-    results.append(analyze_bgcfiles(download_files.alias("download_bgc")(files)))
-    results.append(analyze_dmvfiles(download_files.alias("download_dmv")(dmv_files)))
+    results.append(analyze_bgcfiles(bgc_files))
+    results.append(analyze_dmvfiles(get_list.alias("get_dmv")(download_files)))
 
-    all_files = rename_files(results)
+    processed_files = rename_files(results)
 
-    uber_files = upload_files.alias("upload_uber")(
-        write_csv.alias("write_uber")(get_files.alias("get_uber_files")(all_files))
+    remove_files.alias("remove_uber")(
+        upload_files.alias("upload_uber")(
+            write_csv.alias("write_uber")(
+                get_files.alias("get_uber_files")(processed_files)
+            )
+        )
     )
-    get_other_files.alias("get_uber_other_file")(
-        get_unique_ids.alias("get_unique_uber_id")(uber_files)
-    )
-    # move_files.alias("move_uber_other")( get_other_file.alias("get_uber_other_file")(get_unique_id.alias("get_unique_uber_id")(uber_files)))
-    lyft_files = upload_files.alias("upload_lyft")(
-        write_csv.alias("write_lyft")(get_files.alias("get_lyft_files")(all_files))
-    )
-    get_other_files.alias("get_lyft_other_file")(
-        get_unique_ids.alias("get_unique_lyft_id")(lyft_files)
-    )
-    # move_files.alias("move_lyft_other")(get_other_file.alias("get_lyft_other_file")(get_unique_id.alias("get_unique_lyft_id")(lyft_files)))
 
-    # delete_files.alias("delete_uber")(uber_files)
-    # delete_files.alias("delete_lyft")(lyft_files)
+    remove_files.alias("remove_lyft")(
+        upload_files.alias("upload_lyft")(
+            write_csv.alias("write_lyft")(
+                get_files.alias("get_lyft_files")(processed_files)
+            )
+        )
+    )
+
+    remove_files.alias("remove_other_uber")(
+        upload_to_folder.alias("upload_other_uber_files")(
+            get_other_files.alias("other_uber_files")(download_files)
+        )
+    )
+    remove_files.alias("remove_other_lyft")(
+        upload_to_folder.alias("upload_other_lyft_files")(
+            get_other_files.alias("other_lyft_files")(download_files)
+        )
+    )
 
 
 @schedule(
@@ -666,49 +762,40 @@ def pdfanalyzer_schedule(context: ScheduleEvaluationContext):
                 }
             },
             "ops": {
-                "get_uber_bgc": {
+                "get_uber_docs": {
                     "config": {
                         "base_path": "Uber_Background_Docs",
-                        "match_filename": "_BGC.pdf$",
                     },
                 },
-                "get_lyft_bgc": {
+                "get_lyft_docs": {
                     "config": {
                         "base_path": "Lyft_Background_Docs",
+                    },
+                },
+                "download_all": {
+                    "config": {
+                        "exec_path": f"{execution_date_path}",
+                    }
+                },
+                "upload_all": {
+                    "config": {
+                        "backup_ftp_base": f"Vertical_Apps",
+                    }
+                },
+                "get_bgc": {
+                    "config": {
                         "match_filename": "_BGC.pdf$",
                     },
                 },
-                "get_uber_mvr": {
+                "get_mvr": {
                     "config": {
-                        "base_path": "Uber_Background_Docs",
                         "match_filename": "_MVR.pdf$",
                     },
                 },
-                "get_lyft_dmv": {
+                "get_dmv": {
                     "config": {
-                        "base_path": "Lyft_Background_Docs",
                         "match_filename": "_DMV.pdf$",
                     },
-                },
-                "download_bgc": {
-                    "config": {
-                        "download_path": f"{execution_date_path}",
-                    }
-                },
-                "download_dmv": {
-                    "config": {
-                        "download_path": f"{execution_date_path}",
-                    }
-                },
-                "analyze_bgcfiles": {
-                    "config": {
-                        "download_path": f"{execution_date_path}",
-                    }
-                },
-                "analyze_dmvfiles": {
-                    "config": {
-                        "download_path": f"{execution_date_path}",
-                    }
                 },
                 "get_uber_files": {
                     "config": {
@@ -722,44 +809,44 @@ def pdfanalyzer_schedule(context: ScheduleEvaluationContext):
                 },
                 "write_uber": {
                     "config": {
-                        "csv_filename": f"{execution_date_path}/Uber_drivers_{execution_date}.csv",
+                        "csv_filename": f"{execution_date_path}/Uber_Background_Docs/Uber_drivers_{execution_date}.csv",
                     }
                 },
                 "write_lyft": {
                     "config": {
-                        "csv_filename": f"{execution_date_path}/Lyft_drivers_{execution_date}.csv",
+                        "csv_filename": f"{execution_date_path}/Lyft_Background_Docs/Lyft_drivers_{execution_date}.csv",
                     }
                 },
                 "upload_uber": {
                     "config": {
-                        "base_path": "Uber_Background_Docs",
-                        "local_csv_file": f"{execution_date_path}/Uber_drivers_{execution_date}.csv",
+                        "base_path": "Vertical_Apps/Uber_Background_Docs",
+                        "local_csv_file": f"{execution_date_path}/Uber_Background_Docs/Uber_drivers_{execution_date}.csv",
                     },
                 },
                 "upload_lyft": {
                     "config": {
-                        "base_path": "Lyft_Background_Docs",
-                        "local_csv_file": f"{execution_date_path}/Lyft_drivers_{execution_date}.csv",
+                        "base_path": "Vertical_Apps/Lyft_Background_Docs",
+                        "local_csv_file": f"{execution_date_path}/Lyft_Background_Docs/Lyft_drivers_{execution_date}.csv",
                     },
                 },
-                "get_uber_other_file": {
+                "other_uber_files": {
                     "config": {
-                        "base_path": "Uber_Background_Docs",
+                        "driver_co": "Uber",
                     },
                 },
-                "get_lyft_other_file": {
+                "other_lyft_files": {
                     "config": {
-                        "base_path": "Lyft_Background_Docs",
+                        "driver_co": "Lyft",
                     },
                 },
-                "move_uber_other": {
+                "upload_other_uber_files": {
                     "config": {
-                        "base_path": "Uber_Background_Docs",
+                        "base_path": "Vertical_Apps/Uber_Background_Docs/ValidationFolder",
                     },
                 },
-                "move_lyft_other": {
+                "upload_other_lyft_files": {
                     "config": {
-                        "base_path": "Lyft_Background_Docs",
+                        "base_path": "Vertical_Apps/Lyft_Background_Docs/ValidationFolder",
                     },
                 },
             },
