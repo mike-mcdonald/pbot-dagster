@@ -18,6 +18,9 @@ load_from:
       relative_path: src/repositories/connections.py
       working_directory: src
   - python_file:
+      relative_path: src\repositories\pdfanalyzer.py
+      working_directory: src
+  - python_file:
       relative_path: src/repositories/pfht_to_twilight.py
       working_directory: src
   - python_file:
