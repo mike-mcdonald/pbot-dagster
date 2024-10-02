@@ -2,15 +2,11 @@ import os
 import re
 import stat
 
-from pathlib import Path
-
 import pandas as pd
 
 from dagster import (
     Field,
     OpExecutionContext,
-    Out,
-    Permissive,
     String,
     op,
 )
@@ -20,7 +16,6 @@ from resources.ssh import SSHClientResource
 
 @op(
     config_schema={
-        "path": Field(String, description="Path to the dataframe of files"),
         "remote_path": Field(
             String, description="Remote base path to search for files"
         ),
@@ -29,15 +24,15 @@ from resources.ssh import SSHClientResource
         ),
         "company": Field(String, description="Name of the company these files are for"),
     },
-    required_resource_keys=["ssh_client"],
+    required_resource_keys=["sftp"],
 )
 def get_file_dataframe(context: OpExecutionContext) -> list[dict]:
-    ssh_client: SSHClientResource = context.resources.ssh_client
+    sftp: SSHClientResource = context.resources.sftp
 
     files = []
 
     try:
-        for file in ssh_client.list_iter(context.op_config["remote_path"]):
+        for file in sftp.list_iter(context.op_config["remote_path"]):
             # Ignore directories
             if stat.S_ISDIR(file.st_mode):
                 continue
@@ -46,6 +41,10 @@ def get_file_dataframe(context: OpExecutionContext) -> list[dict]:
     except Exception as err:
         context.log.error(f"Error listing SFTP files!")
         raise err
+
+    if not len(files):
+        context.log.warning(f"No files found!")
+        return files
 
     df = pd.DataFrame(data=files, columns=["filename"])
 
@@ -74,9 +73,6 @@ def get_file_dataframe(context: OpExecutionContext) -> list[dict]:
     df["id"] = df["info"].map(lambda x: x.get("id"))
     df["doc_type"] = df["info"].map(lambda x: x.get("doc_type"))
 
-    context.log.info(f"{context.op_config['path']} has {len(df)} driver files")
-
-    path = Path(context.op_config["path"]).resolve()
-    path.parent.resolve().mkdir(parents=True, exist_ok=True)
+    context.log.info(f"{context.op_config['remote_path']} has {len(df)} driver files")
 
     return df.drop(columns=["info"]).to_dict(orient="records")
