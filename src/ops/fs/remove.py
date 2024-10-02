@@ -100,3 +100,18 @@ def remove_dirs(context: OpExecutionContext, paths: list[str]) -> list[str]:
         files.extend(__remove_dir(path, context.op_config["recursive"]))
 
     return files
+
+
+@op(
+    config_schema={
+        "path": Field(String, "The path to remove"),
+        "recursive": Field(
+            Bool, description="Whether to traverse sub directories", default_value=False
+        ),
+    },
+    ins={"nonce": In(Nothing, "Dummy input to allow scheduling")},
+)
+def remove_dir_config(
+    context: OpExecutionContext,
+) -> list[str]:
+    return __remove_dir(context.op_config["path"], context.op_config["recursive"])
