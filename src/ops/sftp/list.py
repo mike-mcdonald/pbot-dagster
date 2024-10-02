@@ -26,7 +26,7 @@ COMMON_CONFIG = dict(
             is_required=False,
         ),
     },
-    required_resource_keys=["ssh_client"],
+    required_resource_keys=["sftp"],
 )
 
 
@@ -52,7 +52,7 @@ def list(
     context: OpExecutionContext,
 ):
     return _list(
-        context.resources.ssh_client,
+        context.resources.sftp,
         context.op_config["path"],
         context.op_config["pattern"],
     )
@@ -61,7 +61,7 @@ def list(
 @op(**COMMON_CONFIG, out=DynamicOut(String))
 def list_dynamic(context: OpExecutionContext):
     for f in _list(
-        context.resources.ssh_client,
+        context.resources.sftp,
         context.op_config["path"],
         context.op_config["pattern"],
     ):
