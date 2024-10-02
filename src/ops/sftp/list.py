@@ -1,6 +1,7 @@
 import hashlib
 import os
 import re
+import stat
 
 from typing import Optional
 
@@ -31,14 +32,18 @@ COMMON_CONFIG = dict(
 
 def _list(resource: SSHClientResource, path: str, pattern: Optional[str]):
     if pattern is None:
-        return [os.path.join(path, f.filename) for f in resource.list(path)]
+        return [
+            os.path.join(path, f.filename)
+            for f in resource.list(path)
+            if not stat.S_ISDIR(f.st_mode)
+        ]
 
     regex = re.compile(pattern)
 
     return [
         os.path.join(path, f.filename)
         for f in resource.list(path)
-        if regex.search(f.filename)
+        if not stat.S_ISDIR(f.st_mode) and regex.search(f.filename)
     ]
 
 
