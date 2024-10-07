@@ -1,6 +1,12 @@
 import os
 
-from dagster import schedule, RunRequest, ScheduleEvaluationContext, SkipReason
+from dagster import (
+    RunConfig,
+    schedule,
+    RunRequest,
+    ScheduleEvaluationContext,
+    SkipReason,
+)
 
 from models.connection import get_connection
 from repositories.enforcement.unregistered_vehicles import process_politess_exports
@@ -11,8 +17,8 @@ def parking_citations_to_featureclass(context: ScheduleEvaluationContext):
     execution_stamp = context.scheduled_execution_time.strftime("%Y%m%dT%H%M%S")
     store_path = os.path.join(
         os.getenv("DAGSTER_DATA_BASEPATH"),
-        "Citations_",
-        execution_stamp
+        "parking_citations_to_featureclass",
+        execution_stamp,
     )
 
     remote_path = "Vertical_Apps/Citations"
@@ -23,22 +29,17 @@ def parking_citations_to_featureclass(context: ScheduleEvaluationContext):
 
     return RunRequest(
         run_key=context.scheduled_execution_time.strftime(r"%Y%m%dT%H%M%S"),
-        run_config={
-            "resources": {
+        run_config=RunConfig(
+            resources={
                 "geodatabase": {"config": {"conn_id": "mssql_ags_pbot"}},
-                "ssh_client": {"config": {"conn_id": "sftp_citation_test"}},
+                "sftp": {"config": {"conn_id": "sftp_parking_citations"}},
             },
-            "get_citations": {
-                "config": {"remote_path": "Vertical_Apps/Citations"}
-                },
-            "download_citations": {
-                "config": {
-                    "remote_path": "Vertical_Apps/Citations",
-                    "local_path": store_path
+            ops={
+                "append_features": {
+                    "config": {
+                        "feature_class": "AGS_MAINT_PBOT.PBOT_ADMIN.ParkingCitation_Test"
                     }
                 },
-            "ops": {
-                "list_dir": {"config": {"path": store_path}},
                 "create_dataframe": {
                     "config": {
                         "output": os.path.join(
@@ -51,11 +52,10 @@ def parking_citations_to_featureclass(context: ScheduleEvaluationContext):
                         )
                     }
                 },
-                "append_features": {
-                    "config": {
-                        "feature_class": "AGS_MAINT_PBOT.PBOT_ADMIN.ParkingCitation_Test"
-                    }
+                "download_list": {
+                    "config": {"path": os.path.join(store_path, "download_list")}
                 },
+                "list": {"config": {"path": "/", "pattern": "csv"}},
             },
-        },
+        ),
     )

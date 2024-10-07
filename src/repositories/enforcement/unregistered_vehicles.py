@@ -1,7 +1,6 @@
 import os
 
 from datetime import datetime
-from hashlib import sha256
 from pathlib import Path
 
 from dagster import (
@@ -18,84 +17,13 @@ from dagster import (
 
 
 from models.connection import Connection
-from ops.fs.list import list_dir
 from ops.fs.remove import remove_file, remove_files
+from ops.sftp.download import download_list
+from ops.sftp.list import list as list_dir
+from ops.sftp.delete import delete_list
 from resources.mssql import mssql_resource
 from repositories.enforcement.violation_types import VIOLATION_TYPE_MAP
-from resources.ssh import SSHClientResource, ssh_resource
-
-
-@op(
-    config_schema=
-    {"remote_path": Field( String, description="Remote base path to search for files")},
-    out=Out(List[String]),
-    required_resource_keys=["ssh_client"],
-)
-def get_citations(context: OpExecutionContext):
-    import stat
-    ssh_client: SSHClientResource = context.resources.ssh_client
-
-    files = []
-
-    try:
-        for file in ssh_client.list_iter(context.op_config["remote_path"]):
-            # Ignore directories
-            if stat.S_ISDIR(file.st_mode):
-                continue
-            if Path(file.filename).suffix == ".CSV":
-                files.append(os.path.join(context.op_config["remote_path"], file.filename))
-    except Exception as err:
-        context.log.error(f"Error listing SFTP citation files!")
-        raise err
-
-    context.log.info(f" 👮👮👮 Found {len(files)} citation csv files in {context.op_config['remote_path']} directory.")
-    return files
-
-
-@op(
-    config_schema={
-        "remote_path": Field( String, description="Remote base path to search for files"),
-        "local_path": Field(String, description="Download files to this location")
-    },
-    out={"sftp_files": Out(List), "files": Out(List)},
-    required_resource_keys=["ssh_client"],
-)
-
-def download_citations(context: OpExecutionContext, files: list[str]):
-
-    trace = datetime.now()
-    downloads = []
-    ssh_client: SSHClientResource = context.resources.ssh_client
-    try:
-        for remote_file in files:
-            local_path = os.path.join(context.op_config["local_path"],Path(remote_file).name)
-            Path(local_path).resolve().parent.mkdir(parents=True, exist_ok=True)
-
-            ssh_client.download(remote_file, local_path)
-            downloads.append(local_path)
-            context.log.info(f"👮 Download {remote_file} to {str(local_path)}")
-    except Exception as err:
-        context.log.info(f"👮Error downloading {remote_file} to {str(local_path)} ")
-        raise err
-    context.log.info(f"👮👮👮 Downloaded {len(files)} files took {datetime.now() - trace}")
-
-    return files, downloads
-
-@op(
-    required_resource_keys=["ssh_client"],
-)
-
-def remove_ftpfiles(context: OpExecutionContext, sftp_list: list[str]):
-    ssh_client: SSHClientResource = context.resources.ssh_client
-    trace = datetime.now()
-    try:
-        for file in sftp_list:
-            ssh_client.remove(file)
-            context.log.info(f"👮 Removing {file}")
-    except Exception as err:
-        context.log.info(f"👮 Error removing {file}")
-        raise err
-    context.log.info(f"👮👮👮 Deleted {len(sftp_list)} files took {datetime.now() - trace}")
+from resources.ssh import ssh_resource
 
 
 @op(
@@ -304,11 +232,17 @@ def append_features(context: OpExecutionContext, path: str) -> str:
     return path
 
 
-@job(resource_defs={"io_manager": fs_io_manager, "geodatabase": mssql_resource, "ssh_client": ssh_resource})
+@job(
+    resource_defs={
+        "io_manager": fs_io_manager,
+        "geodatabase": mssql_resource,
+        "sftp": ssh_resource,
+    }
+)
 def process_politess_exports():
-    files = get_citations()
-    sftp_files, files = download_citations(files)
-    df, files = create_dataframe(files)
+    remote_files = list_dir()
+    local_files = download_list(remote_files)
+    df, files = create_dataframe(local_files)
     remove_file(append_features(df))
     remove_files(files)
-    remove_ftpfiles(sftp_files)
+    delete_list(remote_files, local_files)
