@@ -7,14 +7,14 @@ from dagster import (
 
 from resources.ssh import SSHClientResource
 
-COMMON_CONFIG = dict(required_resource_keys=["ssh_client"])
+COMMON_CONFIG = dict(required_resource_keys=["sftp"])
 
 
 @op(**COMMON_CONFIG)
 def delete(context: OpExecutionContext, file: str) -> str:
     trace = datetime.now()
 
-    sftp: SSHClientResource = context.resources.ssh_client
+    sftp: SSHClientResource = context.resources.sftp
 
     context.log.info(f"Will remove {file}...")
 
@@ -29,7 +29,7 @@ def delete(context: OpExecutionContext, file: str) -> str:
 def delete_list(context: OpExecutionContext, files: list[str]) -> list[str]:
     trace = datetime.now()
 
-    sftp: SSHClientResource = context.resources.ssh_client
+    sftp: SSHClientResource = context.resources.sftp
 
     context.log.info(f"Will remove {len(files)} files...")
 

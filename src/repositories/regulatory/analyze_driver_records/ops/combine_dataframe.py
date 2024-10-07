@@ -8,11 +8,7 @@ from dagster import (
 )
 
 
-@op(
-    config_schema={
-        "path": Field(String, description="Output path for combined dataframe"),
-    }
-)
+@op()
 def combine_dataframes(
     context: OpExecutionContext, dataframes: list[list[dict]]
 ) -> list[dict]:
