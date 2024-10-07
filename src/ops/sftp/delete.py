@@ -1,16 +1,13 @@
 from datetime import datetime
 
-from dagster import (
-    OpExecutionContext,
-    op,
-)
+from dagster import In, List, Nothing, OpExecutionContext, op, String
 
 from resources.ssh import SSHClientResource
 
 COMMON_CONFIG = dict(required_resource_keys=["sftp"])
 
 
-@op(**COMMON_CONFIG)
+@op(**COMMON_CONFIG, ins={"file": In(String), "nonce": In(Nothing)})
 def delete(context: OpExecutionContext, file: str) -> str:
     trace = datetime.now()
 
@@ -25,7 +22,7 @@ def delete(context: OpExecutionContext, file: str) -> str:
     return file
 
 
-@op(**COMMON_CONFIG)
+@op(**COMMON_CONFIG, ins={"files": In(List), "nonce": In(Nothing)})
 def delete_list(context: OpExecutionContext, files: list[str]) -> list[str]:
     trace = datetime.now()
 
