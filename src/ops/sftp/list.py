@@ -38,7 +38,7 @@ def _list(resource: SSHClientResource, path: str, pattern: Optional[str]):
             if not stat.S_ISDIR(f.st_mode)
         ]
 
-    regex = re.compile(pattern)
+    regex = re.compile(pattern, re.IGNORECASE)
 
     return [
         os.path.join(path, f.filename)
