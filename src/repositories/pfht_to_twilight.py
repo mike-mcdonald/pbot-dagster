@@ -27,7 +27,12 @@ def pfht_to_twilight():
     files = list_dir_dynamic().map(upload_file)
     remove_files(files.collect())
 
-@schedule(job=pfht_to_twilight,cron_schedule="*/15 * * * *",execution_timezone="US/Pacific",)
+
+@schedule(
+    job=pfht_to_twilight,
+    cron_schedule="*/15 * * * *",
+    execution_timezone="US/Pacific",
+)
 def pfht_schedule(context: SensorEvaluationContext):
 
     execution_date = context.scheduled_execution_time.strftime("%Y%m%dT%H%M%S")
@@ -41,7 +46,6 @@ def pfht_schedule(context: SensorEvaluationContext):
 
     if len(files):
         return SkipReason("No files found in pfht import directory")
-
 
     return RunRequest(
         run_key=execution_date,
@@ -66,6 +70,7 @@ def pfht_schedule(context: SensorEvaluationContext):
             },
         },
     )
+
 
 @repository
 def pfht_repo():
