@@ -34,17 +34,16 @@ def pfht_to_twilight():
     execution_timezone="US/Pacific",
 )
 def pfht_schedule(context: SensorEvaluationContext):
+    from pathlib import Path
 
     execution_date = context.scheduled_execution_time.strftime("%Y%m%dT%H%M%S")
-
-    from pathlib import Path
 
     fs = get_connection("fs_pfht_uploads")
 
     path = Path(fs.host)
     files = list(path.rglob("*.csv"))
 
-    if len(files):
+    if not len(files):
         return SkipReason("No files found in pfht import directory")
 
     return RunRequest(
