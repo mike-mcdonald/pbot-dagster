@@ -28,7 +28,7 @@ def analyze_driver_records(context: ScheduleEvaluationContext):
 
     files = []
     for path in [LYFT_FOLDER, UBER_FOLDER]:
-        files.extend([f for f in sftp.list(path) if stat.S_ISDIR(f.st_mode)])
+        files.extend([f for f in sftp.list(path) if not stat.S_ISDIR(f.st_mode)])
 
     if len(files) == 0:
         return SkipReason("No files in any shares")
