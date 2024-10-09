@@ -1,8 +1,6 @@
-from datetime import datetime, timezone
 from dagster import (
     RunRequest,
     ScheduleEvaluationContext,
-    SensorEvaluationContext,
     SkipReason,
     fs_io_manager,
     job,
@@ -13,7 +11,6 @@ from dagster import (
 from models.connection.manager import get_connection
 from ops.azure import upload_file
 from ops.fs import list_dir_dynamic, remove_files
-
 from resources.azure_data_lake_gen2 import adls2_resource
 
 
@@ -33,7 +30,7 @@ def pfht_to_twilight():
     cron_schedule="*/15 * * * *",
     execution_timezone="US/Pacific",
 )
-def pfht_schedule(context: SensorEvaluationContext):
+def pfht_schedule(context: ScheduleEvaluationContext):
     from pathlib import Path
 
     execution_date = context.scheduled_execution_time.strftime("%Y%m%dT%H%M%S")
