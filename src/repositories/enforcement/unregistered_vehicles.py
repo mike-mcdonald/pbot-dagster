@@ -57,7 +57,7 @@ def create_dataframe(
                         x["Ticket status"],
                         x["Offense 1"],
                         x.Officer,
-                        x["To (Date-Time)"],
+                        x["From (Date-Time)"],
                     ]
                 ]
             ).encode("utf8")
@@ -65,6 +65,13 @@ def create_dataframe(
         axis="columns",
     )
 
+    df["DateTime"] = df.apply(
+        lambda x: (
+            x["To (Date-Time)"]
+            if x["To (Date-Time)"].split(" ")[0].split("-")[0] != "0001"
+            else x["From (Date-Time)"]
+        )
+    )
     df = df[
         [
             "Hash",
@@ -72,21 +79,14 @@ def create_dataframe(
             "Offense 1",
             "Beat",
             "Officer",
-            "To (Date-Time)",
+            "DateTime",
             "Amount",
-            "GpsLongitude",
-            "GpsLatitude",
+            "GPS",
         ]
     ].rename(
         columns={
             "Ticket status": "Status",
             "Offense 1": "ViolationNumber",
-            "Beat": "Beat",
-            "Officer": "Officer",
-            "To (Date-Time)": "DateTime",
-            "Amount": "Amount",
-            "GpsLatitude": "Latitude",
-            "GpsLongitude": "Longitude",
         }
     )
 
@@ -109,6 +109,10 @@ def create_dataframe(
     )
 
     df["Officer"] = df["Officer"].astype(np.float64)
+
+    df["Longitude"] = df["GPS"].map(lambda x: x.split(";")[1])
+
+    df["Latitude"] = df["GPS"].map(lambda x: x.split(";")[0])
 
     df["geometry"] = list(zip(df["Longitude"], df["Latitude"]))
     df["geometry"] = df["geometry"].map(Point)
