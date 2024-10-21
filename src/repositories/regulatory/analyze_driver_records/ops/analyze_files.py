@@ -88,7 +88,7 @@ def analyze_report_date(dttm: datetime):
 
 
 def analyze_checkr_file(file: str) -> tuple[bool, str]:
-    pdf = load_pdf(file,0)
+    pdf = load_pdf(file, 0)
 
     result = True
     analysis = []
