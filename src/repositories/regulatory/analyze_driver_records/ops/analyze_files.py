@@ -17,9 +17,9 @@ from dagster import (
 )
 
 
-def load_pdf(path: str):
+def load_pdf(path: str, *page_numbers):
     pdf = PDFQuery(Path(path).resolve())
-    pdf.load()
+    pdf.load(*page_numbers)
     pdf.file.close()
 
     return pdf
@@ -88,7 +88,7 @@ def analyze_report_date(dttm: datetime):
 
 
 def analyze_checkr_file(file: str) -> tuple[bool, str]:
-    pdf = load_pdf(file)
+    pdf = load_pdf(file, 0)
 
     result = True
     analysis = []
