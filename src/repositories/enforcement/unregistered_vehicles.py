@@ -70,8 +70,10 @@ def create_dataframe(
             x["To (Date-Time)"]
             if x["To (Date-Time)"].split(" ")[0].split("-")[0] != "0001"
             else x["From (Date-Time)"]
-        )
+        ),
+        axis="columns",
     )
+
     df = df[
         [
             "Hash",
