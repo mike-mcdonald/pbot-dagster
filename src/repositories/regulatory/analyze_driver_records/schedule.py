@@ -18,6 +18,8 @@ from .job import analyze_driver_records
     execution_timezone="US/Pacific",
 )
 def analyze_driver_records(context: ScheduleEvaluationContext):
+    import stat
+
     SFTP_CONN_ID = "sftp_driver_records"
     LYFT_FOLDER = "Lyft_Background_Docs"
     UBER_FOLDER = "Uber_Background_Docs"
@@ -26,7 +28,7 @@ def analyze_driver_records(context: ScheduleEvaluationContext):
 
     files = []
     for path in [LYFT_FOLDER, UBER_FOLDER]:
-        files.extend(sftp.list(path))
+        files.extend([f for f in sftp.list(path) if not stat.S_ISDIR(f.st_mode)])
 
     if len(files) == 0:
         return SkipReason("No files in any shares")

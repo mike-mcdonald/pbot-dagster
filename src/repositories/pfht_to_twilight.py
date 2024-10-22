@@ -1,15 +1,16 @@
 from dagster import (
     RunRequest,
     ScheduleEvaluationContext,
+    SkipReason,
     fs_io_manager,
     job,
     repository,
     schedule,
 )
 
+from models.connection.manager import get_connection
 from ops.azure import upload_file
 from ops.fs import list_dir_dynamic, remove_files
-
 from resources.azure_data_lake_gen2 import adls2_resource
 
 
@@ -26,12 +27,21 @@ def pfht_to_twilight():
 
 @schedule(
     job=pfht_to_twilight,
-    cron_schedule="0 6 * * *",
+    cron_schedule="*/15 * * * *",
     execution_timezone="US/Pacific",
 )
 def pfht_schedule(context: ScheduleEvaluationContext):
-    DIRECTORY = "//pbotdm2/pudl/pfht"
-    execution_date = context.scheduled_execution_time.strftime("%Y%m%d")
+    from pathlib import Path
+
+    execution_date = context.scheduled_execution_time.strftime("%Y%m%dT%H%M%S")
+
+    fs = get_connection("fs_pfht_uploads")
+
+    path = Path(fs.host)
+    files = list(path.rglob("*.csv"))
+
+    if not len(files):
+        return SkipReason("No files found in pfht import directory")
 
     return RunRequest(
         run_key=execution_date,
@@ -44,10 +54,10 @@ def pfht_schedule(context: ScheduleEvaluationContext):
                 }
             },
             "ops": {
-                "list_dir_dynamic": {"config": {"path": DIRECTORY, "recursive": True}},
+                "list_dir_dynamic": {"config": {"path": fs.host, "recursive": True}},
                 "upload_file": {
                     "config": {
-                        "base_dir": DIRECTORY,
+                        "base_dir": fs.host,
                         "container": "twilight",
                         "remote_path": "dagster/pfht_to_twilight/${parent}/${execution_date}/${name}",
                         "substitutions": {"execution_date": execution_date},
