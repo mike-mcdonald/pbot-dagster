@@ -53,7 +53,7 @@ def _list(
             if pattern is None:
                 yield os.path.join(path, attr.filename)
             else:
-                regex = re.compile(pattern)
+                regex = re.compile(pattern, re.IGNORECASE)
                 if regex.search(attr.filename):
                     yield os.path.join(path, attr.filename)
 
@@ -62,11 +62,13 @@ def _list(
 def list(
     context: OpExecutionContext,
 ):
-    return _list(
-        context.resources.sftp,
-        context.op_config["path"],
-        context.op_config["pattern"],
-        context.op_config["recurse"],
+    return list(
+        _list(
+            context.resources.sftp,
+            context.op_config["path"],
+            context.op_config["pattern"],
+            context.op_config["recurse"],
+        )
     )
 
 
