@@ -1,6 +1,7 @@
 import os
 
 from datetime import datetime
+from pathlib import Path
 
 from dagster import Field, OpExecutionContext, op, String
 
@@ -14,9 +15,15 @@ COMMON_CONFIG = dict(
 )
 
 
+def _ensure_dir(path: os.PathLike):
+    Path(path).mkdir(parents=True, exist_ok=True)
+
+
 @op(**COMMON_CONFIG)
 def download(context: OpExecutionContext, file: str) -> str:
     trace = datetime.now()
+
+    _ensure_dir(context.op_config["path"])
 
     sftp: SSHClientResource = context.resources.sftp
 
@@ -32,6 +39,8 @@ def download(context: OpExecutionContext, file: str) -> str:
 @op(**COMMON_CONFIG)
 def download_list(context: OpExecutionContext, files: list[str]) -> list[str]:
     trace = datetime.now()
+
+    _ensure_dir(context.op_config["path"])
 
     sftp: SSHClientResource = context.resources.sftp
 
