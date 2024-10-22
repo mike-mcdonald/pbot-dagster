@@ -62,14 +62,15 @@ def _list(
 def list(
     context: OpExecutionContext,
 ):
-    return list(
-        _list(
+    return [
+        f
+        for f in _list(
             context.resources.sftp,
             context.op_config["path"],
             context.op_config["pattern"],
             context.op_config["recurse"],
         )
-    )
+    ]
 
 
 @op(**COMMON_CONFIG, out=DynamicOut(String))
