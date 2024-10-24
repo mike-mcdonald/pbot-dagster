@@ -1,7 +1,6 @@
 import os
 
 from datetime import datetime
-from hashlib import sha256
 from pathlib import Path
 
 from dagster import (
@@ -18,10 +17,13 @@ from dagster import (
 
 
 from models.connection import Connection
-from ops.fs.list import list_dir
 from ops.fs.remove import remove_file, remove_files
+from ops.sftp.download import download_list
+from ops.sftp.list import list as list_dir
+from ops.sftp.delete import delete_list
 from resources.mssql import mssql_resource
 from repositories.enforcement.violation_types import VIOLATION_TYPE_MAP
+from resources.ssh import ssh_resource
 
 
 @op(
@@ -55,11 +57,20 @@ def create_dataframe(
                         x["Ticket status"],
                         x["Offense 1"],
                         x.Officer,
-                        x["To (Date-Time)"],
+                        x["From (Date-Time)"],
                     ]
                 ]
             ).encode("utf8")
         ).hexdigest(),
+        axis="columns",
+    )
+
+    df["DateTime"] = df.apply(
+        lambda x: (
+            x["To (Date-Time)"]
+            if x["To (Date-Time)"].split(" ")[0].split("-")[0] != "0001"
+            else x["From (Date-Time)"]
+        ),
         axis="columns",
     )
 
@@ -68,23 +79,16 @@ def create_dataframe(
             "Hash",
             "Ticket status",
             "Offense 1",
-            "BEAT",
+            "Beat",
             "Officer",
-            "To (Date-Time)",
+            "DateTime",
             "Amount",
-            "GpsLongitude",
-            "GpsLatitude",
+            "GPS",
         ]
     ].rename(
         columns={
             "Ticket status": "Status",
             "Offense 1": "ViolationNumber",
-            "BEAT": "Beat",
-            "Officer": "Officer",
-            "To (Date-Time)": "DateTime",
-            "Amount": "Amount",
-            "GpsLatitude": "Latitude",
-            "GpsLongitude": "Longitude",
         }
     )
 
@@ -107,6 +111,10 @@ def create_dataframe(
     )
 
     df["Officer"] = df["Officer"].astype(np.float64)
+
+    df["Longitude"] = df["GPS"].map(lambda x: x.split(";")[1])
+
+    df["Latitude"] = df["GPS"].map(lambda x: x.split(";")[0])
 
     df["geometry"] = list(zip(df["Longitude"], df["Latitude"]))
     df["geometry"] = df["geometry"].map(Point)
@@ -230,8 +238,17 @@ def append_features(context: OpExecutionContext, path: str) -> str:
     return path
 
 
-@job(resource_defs={"io_manager": fs_io_manager, "geodatabase": mssql_resource})
+@job(
+    resource_defs={
+        "io_manager": fs_io_manager,
+        "geodatabase": mssql_resource,
+        "sftp": ssh_resource,
+    }
+)
 def process_politess_exports():
-    df, files = create_dataframe(list_dir())
+    remote_files = list_dir()
+    local_files = download_list(remote_files)
+    df, files = create_dataframe(local_files)
     remove_file(append_features(df))
     remove_files(files)
+    delete_list(remote_files, local_files)
