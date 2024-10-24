@@ -210,11 +210,14 @@ def read_reports(context: OpExecutionContext, path: str):
         lambda x: get_report_field(x, "report_vehicle:license_plate_number").upper()
     )
 
-    df["Address"] = df.report_fields.map(
-        lambda x: get_report_field(x, "report_location:location_address")
-        .replace(r"/", "")
-        .replace(r"\\", "")
-    )
+    def get_address(fields: dict):
+        closest_addr = get_report_field(fields, "report_closest_address")
+        complaint_addr = get_report_field(fields, "report_location:location_address")
+        addr = closest_addr if closest_addr is not None else complaint_addr
+        return addr.replace(r"/", "").replace(r"\\", "")
+
+    df["Address"] = df.report_fields.map(lambda x: get_address(x))
+
 
     df["Lat"] = df.report_fields.map(
         lambda x: float(get_report_field(x, "report_location:location_lat"))
