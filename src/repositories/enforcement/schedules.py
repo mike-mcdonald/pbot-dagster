@@ -12,7 +12,7 @@ from repositories.enforcement.unregistered_vehicles import process_politess_expo
 from resources.ssh import SSHClientResource
 
 
-@schedule(cron_schedule="0 * * * *", job=process_politess_exports)
+@schedule(cron_schedule="0 0 * * *", job=process_politess_exports)
 def parking_citations_to_featureclass(context: ScheduleEvaluationContext):
     execution_stamp = context.scheduled_execution_time.strftime("%Y%m%dT%H%M%S")
 
