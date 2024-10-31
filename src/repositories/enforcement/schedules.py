@@ -13,7 +13,7 @@ from resources.ssh import SSHClientResource
 
 
 @schedule(
-    cron_schedule="0 0 * * *",
+    cron_schedule="0 1 * * *",
     execution_timezone="US/Pacific",
     job=process_politess_exports,
 )
