@@ -280,7 +280,7 @@ def signs_to_file(context: OpExecutionContext):
 
     res = session.post(
         "https://pbotapps.portland.gov/graphql/sign",
-        json={"query": "{ signs { _id status mutcdCode legend type } }"},
+        json={"query": "{ signs { id status mutcdCode legend type } }"},
         verify=False,
     )
 
@@ -321,7 +321,7 @@ def signs_to_file(context: OpExecutionContext):
 
     df = df.rename(
         columns={
-            "_id": "SignCode",
+            "id": "SignCode",
             "legend": "Legend",
             "mutcdCode": "MutcdCode",
             "status": "Status",
