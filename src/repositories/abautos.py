@@ -218,7 +218,6 @@ def read_reports(context: OpExecutionContext, path: str):
 
     df["Address"] = df.report_fields.map(lambda x: get_address(x))
 
-
     df["Lat"] = df.report_fields.map(
         lambda x: float(get_report_field(x, "report_location:location_lat"))
     )
@@ -324,6 +323,13 @@ def read_reports(context: OpExecutionContext, path: str):
 
     df["FirstName"] = df["Names"].astype(str).str.split().str[0]
     df["LastName"] = df["Names"].astype(str).str.split().str[1]
+
+    def get_firstName(firstName: str):
+        return firstName if len(firstName) > 0 else None
+
+    df["FirstName"] = df["FirstName"].map(get_firstName)
+
+    df["FirstName"] = df["FirstName"].fillna("UNKNOWN")
 
     df = df.fillna("")
 
