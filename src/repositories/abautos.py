@@ -236,10 +236,13 @@ def read_reports(context: OpExecutionContext, path: str):
         df["Names"]
         .map(lambda x: x[0])
         .map(lambda x: x if x is not None and len(x) > 0 else None)
+        .map(lambda x: None if x == "declined" else x)
         .fillna("UNKNOWN")
     )
 
-    df["LastName"] = df["Names"].map(lambda x: x[1])
+    df["LastName"] = (
+        df["Names"].map(lambda x: x[1] if len(x) > 1 else None).fillna("UNKNOWN")
+    )
 
     df["Phone"] = df.report_fields.map(lambda x: get_report_field(x, "contact_phone"))
 
@@ -544,7 +547,7 @@ def remove_dir_on_failure(context: HookContext):
         "io_manager": fs_io_manager,
         "sql_server": mssql_resource,
     },
-    hooks={remove_dir_on_failure},
+    # hooks={remove_dir_on_failure},
 )
 def process_zendesk_data():
     path = get_photo_urls(write_reports(read_reports(fetch_reports())))
