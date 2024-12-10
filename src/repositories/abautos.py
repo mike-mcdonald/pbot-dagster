@@ -547,7 +547,7 @@ def remove_dir_on_failure(context: HookContext):
         "io_manager": fs_io_manager,
         "sql_server": mssql_resource,
     },
-    # hooks={remove_dir_on_failure},
+    hooks={remove_dir_on_failure},
 )
 def process_zendesk_data():
     path = get_photo_urls(write_reports(read_reports(fetch_reports())))
