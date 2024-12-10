@@ -218,7 +218,6 @@ def read_reports(context: OpExecutionContext, path: str):
 
     df["Address"] = df.report_fields.map(lambda x: get_address(x))
 
-
     df["Lat"] = df.report_fields.map(
         lambda x: float(get_report_field(x, "report_location:location_lat"))
     )
@@ -227,7 +226,23 @@ def read_reports(context: OpExecutionContext, path: str):
         lambda x: float(get_report_field(x, "report_location:location_lon"))
     )
 
-    df["Names"] = df.report_fields.map(lambda x: get_report_field(x, "contact_name"))
+    df["Names"] = (
+        df.report_fields.map(lambda x: get_report_field(x, "contact_name"))
+        .astype(str)
+        .str.rsplit()
+    )
+
+    df["FirstName"] = (
+        df["Names"]
+        .map(lambda x: x[0])
+        .map(lambda x: x if x is not None and len(x) > 0 else None)
+        .map(lambda x: None if x == "declined" else x)
+        .fillna("UNKNOWN")
+    )
+
+    df["LastName"] = (
+        df["Names"].map(lambda x: x[1] if len(x) > 1 else None).fillna("UNKNOWN")
+    )
 
     df["Phone"] = df.report_fields.map(lambda x: get_report_field(x, "contact_phone"))
 
@@ -321,9 +336,6 @@ def read_reports(context: OpExecutionContext, path: str):
     df["Neighborhood"] = df.apply(
         lambda x: get_neighborhood(x.Lng, x.Lat), axis="columns"
     )
-
-    df["FirstName"] = df["Names"].astype(str).str.split().str[0]
-    df["LastName"] = df["Names"].astype(str).str.split().str[1]
 
     df = df.fillna("")
 
