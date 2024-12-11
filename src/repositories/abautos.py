@@ -234,8 +234,7 @@ def read_reports(context: OpExecutionContext, path: str):
 
     df["FirstName"] = (
         df["Names"]
-        .map(lambda x: x[0])
-        .map(lambda x: x if x is not None and len(x) > 0 else None)
+        .map(lambda x: x[0] if x is not None and len(x) > 0 else None)
         .map(lambda x: None if x == "declined" else x)
         .fillna("UNKNOWN")
     )
